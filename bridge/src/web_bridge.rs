@@ -99,6 +99,8 @@ static UPLOAD_TEMP_COUNTER: AtomicUsize = AtomicUsize::new(0);
 struct BridgeOptions {
     host: String,
     port: u16,
+    /// Unix socket to listen on instead of `host:port`; access is then governed by filesystem permissions.
+    unix_socket: Option<PathBuf>,
     static_dir: PathBuf,
     upload_dir: PathBuf,
     launcher_presets_path: Option<PathBuf>,
@@ -829,7 +831,7 @@ pub(crate) fn run_command(args: &[String]) -> io::Result<i32> {
         Err(message) => {
             eprintln!("{message}");
             eprintln!(
-                "usage: herdr-web-bridge [--session NAME] [--host HOST] [--port PORT] [--static-dir DIR] [--launcher-presets PATH] [--allow-origin ORIGIN] [--allow-host HOSTNAME] [--allow-connect-origin ORIGIN]"
+                "usage: herdr-web-bridge [--session NAME] [--host HOST] [--port PORT] [--unix-socket PATH] [--static-dir DIR] [--launcher-presets PATH] [--allow-origin ORIGIN] [--allow-host HOSTNAME] [--allow-connect-origin ORIGIN]"
             );
             return Ok(2);
         }
@@ -853,6 +855,8 @@ pub(crate) fn run_command(args: &[String]) -> io::Result<i32> {
 fn parse_options(args: &[String]) -> Result<Option<BridgeOptions>, String> {
     let mut host = DEFAULT_HOST.to_string();
     let mut port = DEFAULT_PORT;
+    let mut explicit_tcp_bind = false;
+    let mut unix_socket = None;
     let mut static_dir = PathBuf::from(DEFAULT_STATIC_DIR);
     let mut upload_dir = default_upload_dir();
     let mut launcher_presets_path = None;
@@ -873,6 +877,7 @@ fn parse_options(args: &[String]) -> Result<Option<BridgeOptions>, String> {
                     return Err("missing value for --host".into());
                 };
                 host = value.clone();
+                explicit_tcp_bind = true;
                 index += 2;
             }
             "--session" => {
@@ -890,6 +895,14 @@ fn parse_options(args: &[String]) -> Result<Option<BridgeOptions>, String> {
                 port = value
                     .parse::<u16>()
                     .map_err(|_| "port must be between 0 and 65535".to_string())?;
+                explicit_tcp_bind = true;
+                index += 2;
+            }
+            "--unix-socket" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("missing value for --unix-socket".into());
+                };
+                unix_socket = Some(expand_home(value));
                 index += 2;
             }
             "--static-dir" => {
@@ -941,6 +954,20 @@ fn parse_options(args: &[String]) -> Result<Option<BridgeOptions>, String> {
     allowed_connect_sources.sort();
     allowed_connect_sources.dedup();
 
+    // A Unix socket replaces the TCP listener entirely; mixing both would leave it unclear which boundary applies.
+    if unix_socket.is_some() {
+        if cfg!(not(unix)) {
+            return Err("--unix-socket is only supported on Unix platforms".into());
+        }
+        if explicit_tcp_bind {
+            return Err("--unix-socket cannot be combined with --host or --port".into());
+        }
+        // Non-loopback Host checks are tied to a TCP port, which a Unix socket does not have.
+        if !allowed_hosts.is_empty() {
+            return Err("--unix-socket cannot be combined with --allow-host".into());
+        }
+    }
+
     if let Some(name) = explicit_session {
         crate::session::configure_explicit_session(&name)?;
     }
@@ -948,6 +975,7 @@ fn parse_options(args: &[String]) -> Result<Option<BridgeOptions>, String> {
     Ok(Some(BridgeOptions {
         host,
         port,
+        unix_socket,
         static_dir,
         upload_dir,
         launcher_presets_path,
@@ -964,12 +992,13 @@ fn print_help() {
 fn help_text() -> &'static str {
     "herdr-web-bridge\n\
 \n\
-Usage: herdr-web-bridge [--session NAME] [--host HOST] [--port PORT] [--static-dir DIR] [--upload-dir DIR] [--launcher-presets PATH] [--allow-origin ORIGIN] [--allow-host HOSTNAME] [--allow-connect-origin ORIGIN]\n\
+Usage: herdr-web-bridge [--session NAME] [--host HOST] [--port PORT] [--unix-socket PATH] [--static-dir DIR] [--upload-dir DIR] [--launcher-presets PATH] [--allow-origin ORIGIN] [--allow-host HOSTNAME] [--allow-connect-origin ORIGIN]\n\
 \n\
 Runs the local HTTP/WebSocket bridge for herdr-web.\n\
 Defaults to the active Herdr daemon sockets and 127.0.0.1:8787.\n\
 Use --session NAME to target a named Herdr session and ignore HERDR_SOCKET_PATH.\n\
 Use --host 0.0.0.0 to listen on non-loopback interfaces.\n\
+Use --unix-socket PATH to listen on an owner-only Unix socket instead of TCP, e.g. behind ssh -L 8787:PATH.\n\
 Use --allow-origin http://localhost for bundled Android app access.\n\
 Use --allow-host HOSTNAME to accept that exact DNS hostname in Host headers.\n\
 Use --allow-connect-origin ORIGIN to let the served web app connect to another bridge origin.\n\
@@ -978,7 +1007,7 @@ Uploads default to HERDR_WEB_UPLOAD_DIR, XDG_DATA_HOME/herdr-web/uploads, or ~/.
 }
 
 async fn run_server(options: BridgeOptions) -> io::Result<()> {
-    if !is_loopback_bind_host(&options.host) {
+    if options.unix_socket.is_none() && !is_loopback_bind_host(&options.host) {
         warn!(
             host = %options.host,
             port = options.port,
@@ -1128,10 +1157,53 @@ async fn run_server(options: BridgeOptions) -> io::Result<()> {
         ))
         .layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES))
         .with_state(state);
+    // Serve on exactly one transport. The Unix socket restricts callers by file permissions, which loopback TCP cannot.
+    #[cfg(unix)]
+    if let Some(path) = &options.unix_socket {
+        let listener = bind_unix_listener(path)?;
+        info!(path = %path.display(), "herdr-web-bridge listening on unix socket");
+        return axum::serve(listener, app).await;
+    }
     let bind = format!("{}:{}", options.host, options.port);
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     info!(url = %format!("http://{bind}"), "herdr-web-bridge listening");
     axum::serve(listener, app).await
+}
+
+/// Binds the bridge's owner-only (mode 0600) Unix socket listener at `path`.
+///
+/// A socket file left behind by a crashed bridge is replaced. A path that is not a socket, or a
+/// socket another process still accepts connections on, is refused. The mode is applied after
+/// bind, so the parent directory should also be private to fully close that window.
+#[cfg(unix)]
+fn bind_unix_listener(path: &Path) -> io::Result<tokio::net::UnixListener> {
+    use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+
+    // Reclaim only a socket nobody listens on (connection refused); any other outcome, including
+    // a live socket we may not connect to, keeps the path untouched.
+    if let Ok(metadata) = std::fs::symlink_metadata(path) {
+        if !metadata.file_type().is_socket() {
+            return Err(io::Error::new(
+                ErrorKind::AlreadyExists,
+                format!("{} exists and is not a socket", path.display()),
+            ));
+        }
+        match std::os::unix::net::UnixStream::connect(path) {
+            Err(err) if err.kind() == ErrorKind::ConnectionRefused => std::fs::remove_file(path)?,
+            Ok(_) => {
+                return Err(io::Error::new(
+                    ErrorKind::AddrInUse,
+                    format!("{} is already in use by another process", path.display()),
+                ))
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
+    // Restrict the socket to the owning user; connecting requires write permission on it.
+    let listener = tokio::net::UnixListener::bind(path)?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    Ok(listener)
 }
 
 async fn add_security_headers(
@@ -7135,6 +7207,67 @@ mod tests {
         restore_env(crate::session::SESSION_ENV_VAR, previous_session);
         restore_env(herdr_compat::api::SOCKET_PATH_ENV_VAR, previous_socket);
         crate::session::clear_explicit_session_for_test();
+    }
+
+    #[test]
+    fn parse_options_accepts_unix_socket_but_rejects_mixing_it_with_tcp_bind() {
+        let args = |values: &[&str]| values.iter().map(|v| v.to_string()).collect::<Vec<_>>();
+
+        let options = parse_options(&args(&["--unix-socket", "/run/bridge.sock"]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(options.unix_socket, Some(PathBuf::from("/run/bridge.sock")));
+
+        for conflicting in [
+            ["--host", "127.0.0.1"],
+            ["--port", "8787"],
+            ["--allow-host", "herdr.example"],
+        ] {
+            let mut mixed = args(&["--unix-socket", "/run/bridge.sock"]);
+            mixed.extend(args(&conflicting));
+            let err = parse_options(&mixed).unwrap_err();
+            assert!(err.contains("cannot be combined"), "{conflicting:?}: {err}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unix_listener_is_owner_only_and_reclaims_only_dead_sockets() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = upload_test_dir("unix-listener");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("bridge.sock");
+
+        // A fresh bind is owner-only.
+        let listener = bind_unix_listener(&path).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+
+        // A live listener keeps its path; a second bridge must not steal it.
+        let err = bind_unix_listener(&path).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::AddrInUse);
+
+        // Dropping the listener leaves a dead socket file behind, as a crash would; it is reclaimed.
+        drop(listener);
+        assert!(path.exists());
+        let listener = bind_unix_listener(&path).unwrap();
+
+        // A live socket we are not permitted to connect to (EACCES) is not mistaken for a dead one.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let err = bind_unix_listener(&path).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::PermissionDenied);
+        assert!(path.exists());
+        drop(listener);
+
+        // Anything that is not a socket is refused and left intact.
+        let regular = dir.join("not-a-socket");
+        std::fs::write(&regular, b"keep").unwrap();
+        let err = bind_unix_listener(&regular).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&regular).unwrap(), b"keep");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn restore_env(name: &str, value: Option<String>) {
