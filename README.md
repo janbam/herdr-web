@@ -7,6 +7,8 @@
 > This is an intentionally minimal personal development tool. Focused contributions are welcome;
 > please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
+> **Fork note:** this is `janbam/herdr-web`, a fork of [kcosr/herdr-web](https://github.com/kcosr/herdr-web). Sections and options that exist only in this fork are marked **[fork-specific]**.
+
 Browser UI for Herdr workspaces and agent panes.
 
 This repository is structured as a standalone app that can be distributed without asking users to
@@ -361,6 +363,81 @@ HOST=0.0.0.0 scripts/run-bridge.sh --allow-host host-a --allow-connect-origin ht
 # host B, serving the backend being called
 HOST=0.0.0.0 scripts/run-bridge.sh --allow-host host-b --allow-origin http://host-a:8787
 ```
+
+## SSH-Only Access Via Unix Socket [fork-specific]
+
+The bridge has no authentication. Anyone who can connect to it controls your Herdr session, which means your shell. Loopback TCP (`127.0.0.1:8787`) is reachable by every local user on the host, including service accounts and sandboxed agents, so on a shared or server machine it is not a real boundary.
+
+`--unix-socket PATH` makes the bridge listen on a Unix socket instead of TCP. Access then comes down to filesystem permissions:
+
+- The socket is created with mode `0600`. Put it in a private (`0700`) directory, because the mode is applied just after bind.
+- A dead socket file left by a crashed bridge is replaced. A live socket, a socket you may not connect to, or a path that is not a socket is refused and left untouched.
+- `--unix-socket` cannot be combined with `--host`, `--port`, or `--allow-host`, and is only available on Unix.
+
+Reach it remotely with an SSH local forward from a TCP port to the socket. OpenSSH supports this directly, including Termux on Android:
+
+```bash
+ssh -N -L 8787:/run/user/1000/herdr-web/bridge.sock user@server
+```
+
+Then open `http://127.0.0.1:8787` locally. The browser sends a loopback `Host` header through the forward, so the normal request policy applies unchanged. Nothing on the server listens on TCP, so no firewall or reverse-proxy change is needed or wanted.
+
+To run Herdr and the bridge at boot, use systemd user services with lingering enabled (`loginctl enable-linger $USER`). Install them in `~/.config/systemd/user/`, then run `systemctl --user enable --now herdr.service herdr-web.service`.
+
+`herdr.service`:
+
+```ini
+[Unit]
+Description=Herdr headless server
+
+[Service]
+Type=simple
+# Login-shell environment, so panes and managed agents get the same PATH as an SSH session.
+ExecStart=/bin/bash -lc 'exec "$HOME/.cargo/bin/herdr" server'
+# Report started only once the API answers, so the bridge never races the Herdr socket.
+ExecStartPost=/bin/sh -c 'until %h/.cargo/bin/herdr status server | grep -q "^status: running"; do sleep 0.2; done'
+TimeoutStartSec=30
+# Stop through the API so the session snapshot is saved.
+ExecStop=%h/.cargo/bin/herdr server stop
+# `herdr update --handoff` replaces the server process; stay up while the cgroup has processes.
+ExitType=cgroup
+Restart=on-failure
+RestartSec=5
+WorkingDirectory=%h
+
+[Install]
+WantedBy=default.target
+```
+
+`herdr-web.service`:
+
+```ini
+[Unit]
+Description=herdr-web bridge (SSH-forwarded Unix socket only)
+Requires=herdr.service
+After=herdr.service
+PartOf=herdr.service
+
+[Service]
+Type=simple
+# Creates /run/user/UID/herdr-web with mode 0700 and removes it on stop.
+RuntimeDirectory=herdr-web
+RuntimeDirectoryMode=0700
+ExecStart=%h/.local/opt/herdr-web/bin/herdr-web-bridge --unix-socket %t/herdr-web/bridge.sock --static-dir %h/.local/opt/herdr-web/web
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+Run the bridge from an installed copy rather than the source tree, so rebuilding does not disturb the live service. After `cargo build --release --manifest-path bridge/Cargo.toml --bin herdr-web-bridge && npm run build:web`:
+
+```bash
+install -D -m 755 bridge/target/release/herdr-web-bridge ~/.local/opt/herdr-web/bin/herdr-web-bridge && rsync -a --delete web/dist/ ~/.local/opt/herdr-web/web/ && systemctl --user restart herdr-web.service
+```
+
+Adjust the `herdr` path if it is not installed in `~/.cargo/bin`. Restarting `herdr.service` restores the saved layout but ends running pane processes.
 
 ## Keyboard Shortcuts
 
