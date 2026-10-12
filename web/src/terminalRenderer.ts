@@ -151,6 +151,7 @@ export type TerminalRenderer = {
   fit(): TerminalSize;
   refreshMetrics(): TerminalSize;
   setFontSize(fontSizePx: number): TerminalSize | null;
+  setMetricsChangedListener?(callback: ((size: TerminalSize) => void) | null): void;
   focus(): void;
   focusTextInput(): void;
   clearSelection(): void;
@@ -181,6 +182,9 @@ export class GhosttyRenderer implements TerminalRenderer {
   #eventDrivenRendering: boolean;
   #renderFrameId: number | null = null;
   #renderInteractionCleanup: (() => void) | null = null;
+  #fontMetricsPatchCleanup: (() => void) | null = null;
+  #devicePixelRatioCleanup: (() => void) | null = null;
+  #metricsChangedListener: ((size: TerminalSize) => void) | null = null;
   #disposed = false;
 
   constructor(fontSizePx = DEFAULT_TERMINAL_FONT_SIZE_PX, cursorBlink = true) {
@@ -229,6 +233,28 @@ export class GhosttyRenderer implements TerminalRenderer {
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
     terminal.open(container);
+    // FORK-OWNED (ghostty-web#146, unmerged at pinned 0.4.0): align cell metrics
+    // to device pixels so per-cell background fills tile without seams at
+    // fractional devicePixelRatios. The override persists for later
+    // remeasureFont() calls (font/size changes); the watcher below re-applies
+    // it when the DPR itself changes (zoom, monitor move). Remove on upgrade
+    // once upstream ships the fix.
+    this.#fontMetricsPatchCleanup?.();
+    this.#fontMetricsPatchCleanup = installDevicePixelAlignedFontMetrics(
+      terminal.renderer as unknown as GhosttyFontMetricsRenderer | null,
+      { fontFamily: TERMINAL_FONT_FAMILY, fontSizePx: this.#fontSizePx },
+    );
+    this.#devicePixelRatioCleanup?.();
+    this.#devicePixelRatioCleanup = watchDevicePixelRatio(() => {
+      // Cell metrics depend on the DPR, so a ratio change needs a remeasure
+      // plus a refit; the new size goes to the bridge via the listener.
+      // Sync the renderer's cached ratio first (see applyDevicePixelRatio).
+      applyDevicePixelRatio(
+        terminal.renderer as unknown as GhosttyFontMetricsRenderer | null,
+      );
+      const size = this.refreshMetrics();
+      this.#metricsChangedListener?.(size);
+    });
     if (this.#eventDrivenRendering) {
       suspendGhosttyIdleRenderLoop(terminal);
       this.#renderInteractionCleanup = installTerminalInteractionRendering(
@@ -330,6 +356,10 @@ export class GhosttyRenderer implements TerminalRenderer {
     return this.refreshMetrics();
   }
 
+  setMetricsChangedListener(callback: ((size: TerminalSize) => void) | null) {
+    this.#metricsChangedListener = callback;
+  }
+
   focus() {
     this.focusTextInput();
   }
@@ -366,6 +396,11 @@ export class GhosttyRenderer implements TerminalRenderer {
 
   dispose() {
     this.#disposed = true;
+    this.#fontMetricsPatchCleanup?.();
+    this.#fontMetricsPatchCleanup = null;
+    this.#devicePixelRatioCleanup?.();
+    this.#devicePixelRatioCleanup = null;
+    this.#metricsChangedListener = null;
     this.#renderInteractionCleanup?.();
     this.#renderInteractionCleanup = null;
     if (this.#renderFrameId !== null) {
@@ -1466,6 +1501,170 @@ export class GhosttyRenderer implements TerminalRenderer {
       focusTextarea: () => this.focusTextInput(),
     });
   }
+}
+
+/**
+ * Raw font measurement feeding {@link devicePixelAlignedFontMetrics}: the
+ * unrounded advance and ascent/descent of the terminal font.
+ */
+export type TerminalRawFontMeasurement = {
+  width: number;
+  ascent: number;
+  descent: number;
+};
+
+/**
+ * Device-pixel-aligned cell metrics: widths/heights/baseline in CSS pixels that
+ * are exact multiples of 1/devicePixelRatio.
+ */
+export type TerminalFontMetrics = {
+  width: number;
+  height: number;
+  baseline: number;
+};
+
+/** Structural view of ghostty-web's CanvasRenderer for the metrics patch. */
+export type GhosttyFontMetricsRenderer = {
+  devicePixelRatio: number;
+  measureFont(): TerminalFontMetrics;
+  remeasureFont(): void;
+  /** Live fields ghostty keeps current; fall back to install options when absent. */
+  fontSize?: number;
+  fontFamily?: string;
+};
+
+/**
+ * FORK-OWNED port of upstream ghostty-web PR #146 (unmerged at the pinned
+ * 0.4.0): round font metrics up to the nearest device pixel, not CSS pixel.
+ * This keeps cell edges on exact physical pixels at any devicePixelRatio, so
+ * adjacent per-cell background fills (selection, inverse video, custom bg
+ * colors) tile without hairline seams. As a side effect the canvas backing
+ * size becomes an exact integer, which also stops the renderer's every-frame
+ * resize/redraw loop at fractional ratios (upstream issue #198). Remove once
+ * upstream ships the fix and the dependency is bumped past it.
+ * @param measured Unrounded advance/ascent/descent, as in ghostty's measureFont.
+ * @param devicePixelRatio Effective rendering ratio; non-positive falls back to 1.
+ */
+export function devicePixelAlignedFontMetrics(
+  measured: TerminalRawFontMeasurement,
+  devicePixelRatio: number,
+) {
+  const ratio = devicePixelRatio > 0 ? devicePixelRatio : 1;
+  return {
+    width: Math.ceil(measured.width * ratio) / ratio,
+    height: Math.ceil((measured.ascent + measured.descent + 2) * ratio) / ratio,
+    baseline: Math.ceil((measured.ascent + 1) * ratio) / ratio,
+  };
+}
+
+/**
+ * Measure the terminal font the same way ghostty-web's measureFont does,
+ * but without its CSS-pixel ceiling so the result can be device-aligned.
+ * Returns null when no 2D context is available (e.g. canvas-less test envs).
+ */
+export function measureTerminalFontRaw(
+  fontFamily: string,
+  fontSizePx: number,
+): TerminalRawFontMeasurement | null {
+  const context = document.createElement("canvas").getContext("2d");
+  if (!context) {
+    return null;
+  }
+  context.font = `${fontSizePx}px ${fontFamily}`;
+  const metrics = context.measureText("M");
+  return {
+    width: metrics.width,
+    ascent: metrics.actualBoundingBoxAscent || fontSizePx * 0.8,
+    descent: metrics.actualBoundingBoxDescent || fontSizePx * 0.2,
+  };
+}
+
+/**
+ * Replace a ghostty-web renderer's measureFont with the device-aligned port
+ * and remeasure immediately. Later remeasureFont() calls (font/size changes)
+ * keep using the override; remove it by calling the returned cleanup.
+ * Returns null (with a warning) when the renderer does not expose the
+ * expected 0.4.0 shape, so a future dependency upgrade degrades to stock
+ * rendering instead of breaking mounting.
+ */
+export function installDevicePixelAlignedFontMetrics(
+  renderer: GhosttyFontMetricsRenderer | null | undefined,
+  options: {
+    fontFamily: string;
+    fontSizePx: number;
+    measureRaw?: typeof measureTerminalFontRaw;
+  },
+): (() => void) | null {
+  if (
+    !renderer ||
+    typeof renderer.measureFont !== "function" ||
+    typeof renderer.remeasureFont !== "function"
+  ) {
+    console.warn("terminal font metrics patch skipped: unexpected renderer shape");
+    return null;
+  }
+  const { fontFamily, fontSizePx, measureRaw = measureTerminalFontRaw } = options;
+  const originalMeasureFont = renderer.measureFont.bind(renderer);
+  renderer.measureFont = () => {
+    // Read live font fields: setFontSize() flows through remeasureFont() without
+    // reinstalling this patch, so closing over install-time values would go stale.
+    const raw = measureRaw(renderer.fontFamily ?? fontFamily, renderer.fontSize ?? fontSizePx);
+    if (!raw) {
+      return originalMeasureFont();
+    }
+    return devicePixelAlignedFontMetrics(raw, renderer.devicePixelRatio || 1);
+  };
+  renderer.remeasureFont();
+  return () => {
+    renderer.measureFont = originalMeasureFont;
+  };
+}
+
+function currentDevicePixelRatio() {
+  return typeof window === "undefined" || !window.devicePixelRatio
+    ? 1
+    : window.devicePixelRatio;
+}
+
+/**
+ * Sync a ghostty-web renderer's cached ratio to the live one. Upstream pins
+ * devicePixelRatio at construction and never updates it, so without this a
+ * DPR change would remeasure against the stale ratio and size the canvas
+ * backing store wrong. Returns the applied ratio.
+ */
+export function applyDevicePixelRatio(
+  renderer: Pick<GhosttyFontMetricsRenderer, "devicePixelRatio"> | null | undefined,
+  devicePixelRatio: number = currentDevicePixelRatio(),
+) {
+  if (renderer) {
+    renderer.devicePixelRatio = devicePixelRatio;
+  }
+  return devicePixelRatio;
+}
+
+function observeResolutionChange(devicePixelRatio: number, notify: () => void) {
+  // The media query only fires while it matches, so re-subscribe at the new
+  // ratio after every change (browser zoom, monitor/display-scale move).
+  const media = window.matchMedia(`(resolution: ${devicePixelRatio}dppx)`);
+  const handleChange = () => {
+    stop();
+    stop = observeResolutionChange(currentDevicePixelRatio(), notify);
+    notify();
+  };
+  let stop = () => media.removeEventListener("change", handleChange);
+  media.addEventListener("change", handleChange);
+  return () => stop();
+}
+
+/**
+ * Run onChange whenever the effective devicePixelRatio changes. The observer
+ * is injectable so unit tests do not need matchMedia.
+ */
+export function watchDevicePixelRatio(
+  onChange: (devicePixelRatio: number) => void,
+  observe: typeof observeResolutionChange = observeResolutionChange,
+) {
+  return observe(currentDevicePixelRatio(), () => onChange(currentDevicePixelRatio()));
 }
 
 export function refreshTerminalFontRendering(
