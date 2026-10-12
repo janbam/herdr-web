@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  applyDevicePixelRatio,
+  devicePixelAlignedFontMetrics,
   handleTerminalCustomKeyEvent,
+  installDevicePixelAlignedFontMetrics,
   installTerminalInteractionRendering,
   renderGhosttyTerminalFrame,
   refreshTerminalFontRendering,
   shouldUseEventDrivenTerminalRendering,
   suspendGhosttyIdleRenderLoop,
+  watchDevicePixelRatio,
 } from "./terminalRenderer";
 
 describe("terminal event-driven rendering", () => {
@@ -98,6 +102,140 @@ describe("terminal renderer font refresh", () => {
     expect(terminal.options.fontSize).toBe(14);
     expect(renderer.render).toHaveBeenCalledWith(wasmTerm, true, 7, terminal, 0);
     expect(calls).toEqual(["remeasure", "fit", "render"]);
+  });
+});
+
+describe("device-pixel-aligned terminal font metrics", () => {
+  it("keeps stock ceiling behavior at a devicePixelRatio of 1", () => {
+    expect(devicePixelAlignedFontMetrics({ width: 7.8, ascent: 10, descent: 3 }, 1)).toEqual({
+      width: 8,
+      height: 15,
+      baseline: 11,
+    });
+  });
+
+  it("lands cell edges on exact device pixels at fractional ratios", () => {
+    // 7.8 CSS px * 1.25 = 9.75 device px -> 10, i.e. 8 CSS px tile exactly.
+    const metrics = devicePixelAlignedFontMetrics({ width: 7.8, ascent: 10, descent: 3 }, 1.25);
+    expect(metrics).toEqual({ width: 8, height: 15.2, baseline: 11.2 });
+    for (const value of [metrics.width, metrics.height, metrics.baseline]) {
+      expect(value * 1.25).toBeCloseTo(Math.round(value * 1.25), 10);
+    }
+  });
+
+  it("falls back to a ratio of 1 for non-positive input", () => {
+    expect(devicePixelAlignedFontMetrics({ width: 7.8, ascent: 10, descent: 3 }, 0)).toEqual(
+      devicePixelAlignedFontMetrics({ width: 7.8, ascent: 10, descent: 3 }, 1),
+    );
+  });
+
+  it("overrides measureFont, remeasures, and restores the original", () => {
+    const stock = { width: 8, height: 15, baseline: 11 };
+    const renderer = {
+      devicePixelRatio: 1.5,
+      measureFont: vi.fn(() => stock),
+      remeasureFont: vi.fn(),
+    };
+    const measureRaw = vi.fn(() => ({ width: 7.8, ascent: 10, descent: 3 }));
+
+    const restore = installDevicePixelAlignedFontMetrics(renderer, {
+      fontFamily: "test mono",
+      fontSizePx: 13,
+      measureRaw,
+    });
+
+    expect(renderer.remeasureFont).toHaveBeenCalledOnce();
+    // 7.8*1.5=11.7 -> 12/1.5 = 8; height (10+3+2)*1.5=22.5 -> 23/1.5.
+    expect(renderer.measureFont()).toEqual({ width: 8, height: 23 / 1.5, baseline: 17 / 1.5 });
+    expect(measureRaw).toHaveBeenCalledWith("test mono", 13);
+    restore?.();
+    expect(renderer.measureFont()).toBe(stock);
+  });
+
+  it("follows live renderer font fields after install", () => {
+    const stock = { width: 8, height: 15, baseline: 11 };
+    const renderer = {
+      devicePixelRatio: 1,
+      fontSize: 13,
+      fontFamily: "old mono",
+      measureFont: vi.fn(() => stock),
+      remeasureFont: vi.fn(),
+    };
+    const measureRaw = vi.fn(() => ({ width: 7.8, ascent: 10, descent: 3 }));
+    installDevicePixelAlignedFontMetrics(renderer, {
+      fontFamily: "fallback mono",
+      fontSizePx: 99,
+      measureRaw,
+    });
+
+    renderer.fontSize = 16;
+    renderer.measureFont();
+    // Live renderer fields win over install-time options (stale setFontSize
+    // reads were the regression: cells measured at the old size).
+    expect(measureRaw).toHaveBeenLastCalledWith("old mono", 16);
+  });
+
+  it("syncs the renderer's cached ratio onto the live one", () => {
+    const renderer = { devicePixelRatio: 1 };
+    expect(applyDevicePixelRatio(renderer, 1.5)).toBe(1.5);
+    expect(renderer.devicePixelRatio).toBe(1.5);
+    expect(applyDevicePixelRatio(null, 2)).toBe(2);
+  });
+
+  it("keeps canvas size-check products exact at common ratios", () => {
+    // Upstream compares integer canvas.width against cols*width*dpr with !==,
+    // so the aligned metrics must multiply back to exact integers.
+    for (const ratio of [1, 1.25, 1.5, 2]) {
+      for (const raw of [7.2, 7.8, 9.6, 13.33]) {
+        const metrics = devicePixelAlignedFontMetrics(
+          { width: raw, ascent: 10, descent: 3 },
+          ratio,
+        );
+        expect(metrics.width * ratio).toBe(Math.ceil(raw * ratio));
+        expect(metrics.height * ratio).toBe(Math.ceil(15 * ratio));
+      }
+    }
+  });
+
+  it("uses stock metrics when raw measurement is unavailable", () => {
+    const stock = { width: 8, height: 15, baseline: 11 };
+    const renderer = {
+      devicePixelRatio: 1.5,
+      measureFont: vi.fn(() => stock),
+      remeasureFont: vi.fn(),
+    };
+    installDevicePixelAlignedFontMetrics(renderer, {
+      fontFamily: "test mono",
+      fontSizePx: 13,
+      measureRaw: () => null,
+    });
+    expect(renderer.measureFont()).toBe(stock);
+  });
+
+  it("skips renderers without the expected 0.4.0 shape", () => {
+    expect(
+      installDevicePixelAlignedFontMetrics(null, { fontFamily: "x", fontSizePx: 13 }),
+    ).toBeNull();
+    expect(
+      installDevicePixelAlignedFontMetrics({} as never, { fontFamily: "x", fontSizePx: 13 }),
+    ).toBeNull();
+  });
+
+  it("notifies and unsubscribes on devicePixelRatio changes", () => {
+    let notify: (() => void) | undefined;
+    const unsubscribe = vi.fn();
+    const observe = vi.fn((_ratio: number, onNotify: () => void) => {
+      notify = onNotify;
+      return unsubscribe;
+    });
+    const onChange = vi.fn();
+    const stop = watchDevicePixelRatio(onChange, observe);
+
+    expect(observe).toHaveBeenCalledOnce();
+    notify?.();
+    expect(onChange).toHaveBeenCalledOnce();
+    stop();
+    expect(unsubscribe).toHaveBeenCalledOnce();
   });
 });
 

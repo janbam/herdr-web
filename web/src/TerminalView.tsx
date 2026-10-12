@@ -1209,6 +1209,19 @@ export function TerminalView({
     resizeTerminal("refresh");
   }, [refitToken, resizeTerminal]);
 
+  // Forward terminal sizes that originate inside the renderer (devicePixelRatio
+  // changes remeasure and refit without a host resize) to the bridge.
+  useEffect(() => {
+    const ready = rendererReady;
+    if (!ready) {
+      return;
+    }
+    ready.renderer.setMetricsChangedListener?.((size) => sendResizeRef.current(size));
+    return () => {
+      ready.renderer.setMetricsChangedListener?.(null);
+    };
+  }, [rendererReady]);
+
   useEffect(() => {
     const terminalId = pane?.terminal_id ?? null;
     if (!mobileControls || !terminalId || rendererReady?.terminalId !== terminalId) {

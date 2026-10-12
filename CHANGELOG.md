@@ -21,6 +21,9 @@
 
 ### Fixed
 
+- Align terminal cell metrics to device-pixel boundaries (port of upstream ghostty-web PR #146),
+  removing the hairline grid seams over selection and other per-cell background fills at
+  fractional display ratios. [PR #2](https://github.com/janbam/herdr-web/pull/2).
 - Send protocol-level pings on idle browser WebSockets and close connections that do not return peer
   traffic within 15 seconds, removing dead transports without claiming to detect frozen JavaScript.
   [PR #93](https://github.com/kcosr/herdr-web/pull/93), contributed by
