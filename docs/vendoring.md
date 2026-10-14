@@ -33,9 +33,9 @@ The browser app is not vendored into Herdr. It lives at `web/`, and `herdr-web-b
 ## Current Reference
 
 - Upstream checkout: a clean Herdr source checkout outside this repository
-- Upstream release baseline: `v0.9.0`
+- Upstream release baseline: `v0.9.4`
 - Terminal wire baseline: protocol `22`
-- Upstream commit: `b99002ac99b09e00b4ca692436cb15a6b0d676f1`
+- Upstream commit: `7e26bad94044eba205033111a0ce8033ede7e24f`
 
 Use the upstream checkout as an external reference for audits and refreshes. It is not required to
 build `herdr-web`.
@@ -64,7 +64,7 @@ bridge narrows the drift check to only the terminal attach message regions.
 
 ## Refresh Process
 
-Use a clean Herdr checkout at the reviewed `v0.9.0` release tag as the source reference. Do not
+Use a clean Herdr checkout at the reviewed `v0.9.4` release tag as the source reference. Do not
 refresh from an experimental tree that may contain unrelated local drift. Copy the reviewed
 upstream source files into the minimal compatibility crate; do not make the bridge compile against
 the external checkout or recreate a full upstream vendor snapshot.
@@ -110,9 +110,12 @@ src/server/socket_paths.rs -> vendor/herdr-compat/src/server/socket_paths.rs
   adaptation is expected by the vendor drift check.
 - `input.rs` contains the upstream pure input model. Small config/terminal-theme shims satisfy
   shared wire types; terminal parsing and rendering remain owned by Herdr.
+- `raw_input.rs` is a minimal protocol shim carrying only the `RawInputEvent` variants the copied
+  wire conversions construct, and `terminal_theme.rs` carries the matching `DefaultColorKind`.
+  Both grow only when the copied wire body needs another variant.
 - Upstream wire serialization tests live in `protocol/wire/upstream_wire_tests.rs`; two tests requiring
-  the native terminal key encoder are excluded. The production wire body remains exact and
-  separately checked against the tagged source.
+  the native terminal key encoder are excluded, and the graphics bulk codec tests are mirrored.
+  The production wire body remains exact and separately checked against the tagged source.
 - `protocol.rs` and schema tests include bridge fixture tests for the reviewed protocol/schema
   baseline.
 

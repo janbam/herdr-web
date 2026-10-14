@@ -521,7 +521,7 @@ local `vendor/herdr-compat` crate for copied Herdr protocol/schema/client/socket
 bridge HTTP/WebSocket behavior in `bridge/src/web_bridge.rs`. A separate upstream Herdr checkout can
 be used for refreshes and drift audits, but a full `vendor/herdr` snapshot is not part of this repo.
 The cost is that `vendor/herdr-compat` must be kept compatible with Herdr protocol changes.
-The current compatibility baseline is Herdr `v0.9.0` and terminal protocol `22`; the bridge requires
+The current compatibility baseline is Herdr `v0.9.4` and terminal protocol `22`; the bridge requires
 that exact protocol rather than attempting to decode older or newer private wire formats.
 
 See [docs/vendoring.md](docs/vendoring.md) for the refresh process.
