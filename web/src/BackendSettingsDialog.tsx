@@ -2,6 +2,7 @@ import { hexToHsva, hsvaToHex } from "@uiw/color-convert";
 import type { HsvaColor } from "@uiw/color-convert";
 import Wheel from "@uiw/react-color-wheel";
 import {
+  Bell,
   Plus,
   RotateCcw,
   Server,
@@ -57,6 +58,7 @@ import { trapFocusWithin, useFocusReturn } from "./overlayFocus";
 import { TERMINAL_INPUT_BATCH_DELAY_OPTIONS_MS } from "./terminalInputTransport";
 import type { TerminalInputTransport } from "./terminalInputTransport";
 import { TERMINAL_OUTPUT_COALESCE_OPTIONS_MS } from "./terminalOutputCoalescing";
+import { PushNotificationSettings } from "./PushNotificationSettings";
 
 type Props = {
   showMobileTerminalSettings: boolean;
@@ -122,7 +124,7 @@ type FormState = {
 };
 
 type SelectionMode = "same-origin" | "new" | "backend";
-type SettingsArea = "bridge" | "features" | "display" | "terminal" | "mobile";
+type SettingsArea = "bridge" | "features" | "display" | "terminal" | "mobile" | "notifications";
 
 export function BackendSettingsDialog({
   showMobileTerminalSettings,
@@ -311,6 +313,7 @@ export function BackendSettingsDialog({
   const areas: { id: SettingsArea; label: string; icon: typeof Server }[] = [
     { id: "bridge", label: "Bridge", icon: Server },
     { id: "features", label: "Features", icon: StickyNote },
+    { id: "notifications", label: "Notifications", icon: Bell },
     { id: "display", label: "Display", icon: SlidersHorizontal },
     { id: "terminal", label: "Terminal", icon: SquareTerminal },
     ...(showMobileTerminalSettings
@@ -549,6 +552,8 @@ export function BackendSettingsDialog({
                 </div>
               </div>
             ) : null}
+
+            {activeArea === "notifications" ? <PushNotificationSettings /> : null}
 
             {activeArea === "display" ? (
               <div className="settings-section settings-section-flat">

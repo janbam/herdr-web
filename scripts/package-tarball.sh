@@ -32,7 +32,18 @@ STAGE="$PKG_ROOT/$NAME"
 ARCHIVE="$PKG_ROOT/$NAME.tar.gz"
 
 npm --prefix "$ROOT" run build:web
-cargo build --release --manifest-path "$ROOT/bridge/Cargo.toml" --bin herdr-web-bridge
+# Explicit library paths bypass pkg-config's dynamic-only policy for system libraries.
+OPENSSL_STATIC=1 OPENSSL_LIB_DIR="${OPENSSL_LIB_DIR:-$(pkg-config --variable=libdir openssl)}" OPENSSL_INCLUDE_DIR="${OPENSSL_INCLUDE_DIR:-$(pkg-config --variable=includedir openssl)}" cargo build --release --manifest-path "$ROOT/bridge/Cargo.toml" --bin herdr-web-bridge
+
+# Fail before staging if the executable would require the build host's OpenSSL installation.
+case "$(uname -s)" in
+  Linux) linkage="$(ldd "$ROOT/bridge/target/release/herdr-web-bridge")" ;;
+  Darwin) linkage="$(otool -L "$ROOT/bridge/target/release/herdr-web-bridge")" ;;
+esac
+if [[ "${linkage:-}" =~ lib(ssl|crypto) ]]; then
+  echo "release bridge still links external OpenSSL libraries; refusing to package" >&2
+  exit 1
+fi
 
 rm -rf "$STAGE" "$ARCHIVE"
 mkdir -p "$STAGE/bin" "$STAGE/share/herdr-web/web"

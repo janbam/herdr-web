@@ -47,6 +47,7 @@ Install dependencies first:
 - npm
 - Rust stable
 - a platform C toolchain usable by Cargo
+- OpenSSL development libraries, including static `libssl` and `libcrypto` archives, and `pkg-config`. The tarball build sets `OPENSSL_STATIC=1` so recipients do not need the build host's OpenSSL installation.
 
 ```bash
 npm ci
@@ -87,6 +88,8 @@ cat dist-packages/herdr-web-vX.Y.Z-PLATFORM.tar.gz.sha256
 
 Confirm the archive contains the expected root directory, `bin/herdr-web`,
 `bin/herdr-web-bridge`, bundled `share/herdr-web/web/` assets, and `README.md`.
+
+Inspect runtime linkage with `ldd bridge/target/release/herdr-web-bridge` on Linux or `otool -L bridge/target/release/herdr-web-bridge` on macOS. Neither output should reference external `libssl` or `libcrypto` libraries. macOS output must not reference Homebrew OpenSSL paths. Test the unpacked executable on a clean target machine before release.
 
 Before release, run the unpacked wrapper against a Herdr `v0.9.0` or newer daemon reporting protocol
 `22`. Confirm the bridge accepts that combination and rejects a daemon reporting any other terminal

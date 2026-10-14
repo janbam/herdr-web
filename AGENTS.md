@@ -4,6 +4,7 @@ This is a lightweight internal onboarding note for agents working in this repo.
 
 ## Start Here
 
+- Read `FORK.md` for fork-owned behavior, divergence, and upstream integration hazards.
 - Read `README.md` for the product shape, bridge runtime model, and local run commands.
 - Read `web/README.md` before changing the React/Vite app.
 - Read `docs/vendoring.md` before touching `vendor/herdr-compat/`.
@@ -24,6 +25,12 @@ This is a lightweight internal onboarding note for agents working in this repo.
 - Keep generated outputs out of commits: `web/dist/`, `bridge/target/`, and
   `vendor/herdr-compat/target/`, `dist-packages/`, and Android build outputs.
 - The bridge is local-first and currently has no full browser authentication. Treat LAN binding and upload behavior as security-sensitive.
+
+## Fork Ownership
+
+- Always keep `FORK.md` current: update it in the same change whenever you add, modify, remove, or supersede fork-owned behavior, dependencies, compatibility baselines, or merge hazards.
+- Before merging upstream or resolving upstream conflicts, consult `FORK.md` and follow its integration checklist. Preserve its documented invariants unless an explicitly reviewed replacement supersedes them; do not resolve overlaps by blindly taking either side.
+- After an upstream merge, update the integration references and remaining divergence in `FORK.md`. Keep ownership/rationale there, usage in the relevant docs, and release history in `CHANGELOG.md`.
 
 ## Testing
 

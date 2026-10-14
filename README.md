@@ -80,6 +80,7 @@ For source development:
 - Node.js 22 or newer
 - npm
 - Rust stable
+- OpenSSL development libraries and `pkg-config` for Web Push payload encryption when building the bridge from source.
 - A running Herdr `v0.9.0` or newer daemon/session that reports terminal protocol `22`
 
 Android development also needs a JDK and Android SDK. See [docs/android.md](docs/android.md).
@@ -186,6 +187,7 @@ Settings are grouped by area:
 
 - Bridge: same-origin and saved bridge profiles, reachability testing, and bridge enablement.
 - Features: client feature toggles such as Notes.
+- Notifications: per-browser, per-bridge Web Push enrollment, working-to-blocked and working-to-idle preferences, and a test notification.
 - Display: browser-wide navigation synchronization, agent features in Tabs, multi-host Space
   selection, top/bottom app padding, and mobile terminal controls size.
 - Terminal: font size, optional screen-reader text, upload-conflict behavior, browser-to-bridge
@@ -224,6 +226,23 @@ spaces. Disable it when screen-reader access is not needed to avoid the addition
 Automatic upload conflict renaming is on by default. If `image.png` already exists, another upload
 is saved as `image-1.png` without a replacement prompt. Turn it off under Settings → Terminal →
 Uploads to keep the existing Replace or Cancel prompt instead.
+
+### Web Push Notifications [fork-specific]
+
+Web Push sends Android system notifications even while the page is closed or suspended. Firefox Android uses Mozilla Autopush, with Firebase Cloud Messaging underneath. The bridge sends encrypted messages outbound to the provider. It does not need a public address, inbound port, or direct phone connection. Both the bridge and phone need internet access. The phone does not need to keep its SSH tunnel connected after enrollment.
+
+1. Set `HERDR_WEB_PUSH_SUBJECT=mailto:you@example.com` to a real operator contact in the bridge's environment and restart it. This is the VAPID contact shared with the push provider, not a destination for email. Without it, push is disabled. No provider account is needed.
+2. Open the web app in Firefox over HTTPS or a phone-local `localhost` connection, such as an SSH tunnel ending on the Android device. Plain HTTP over a LAN IP address cannot enroll for push.
+3. Open Settings → Notifications, choose a bridge, select working → blocked and working → idle, and click Enable notifications. Allow the browser permission prompt and Android's notification permission for Firefox.
+4. Send a test notification and check Android's notification shade. Then verify an actual working-to-blocked or working-to-idle transition with the page closed.
+
+Preferences and signing keys survive bridge restarts. Only transitions observed in one ordered daemon event stream produce notifications. The first status event after startup or resubscription seeds the previous status without alerting, because buffered events can predate the initial snapshot. An agent already working before that baseline may therefore finish without an alert. Startup and reconnect snapshots do not produce catch-up alerts. Notifications contain a pane ID and destination status, not agent titles, terminal output, or prompts. Clicking one opens or focuses the app. Each browser profile and bridge enroll separately. Disabling a bridge in the sidebar does not disable push. Disable enrollment in Notifications before removing a saved bridge or changing its URL, then re-enroll at the new address. If Firefox expires a subscription or site data is cleared, re-enable notifications.
+
+Private signing keys and subscriptions live under `$XDG_DATA_HOME/herdr-web/push`, or `~/.local/share/herdr-web/push`. Override the directory with `HERDR_WEB_PUSH_DIR`. Files are session-specific and owner-only on Unix. Preserve them across upgrades. Losing them requires browser re-enrollment. Treat subscriptions as credentials and never publish this directory.
+
+Enrollment uses the bridge's existing Host and Origin policy, not user authentication. Any trusted bridge client can enroll its own browser and receive future pane IDs and states. Keep the bridge behind SSH or on a trusted network. Only Mozilla and Firebase HTTPS endpoints are allowed, redirects are not followed, and subscriptions, requests, delivery concurrency, and queues are bounded. Definitively expired subscriptions are removed; transient provider errors are logged without delivery addresses or keys. Delivery attempts and queued events expire after about one minute, so this is not a durable alert history. Multiple bridge processes watching the same session may each deliver the same transition; use one push-enabled bridge per session.
+
+Firefox and Android may delay or suppress delivery due to battery restrictions, notification settings, force-stopping Firefox, network loss, or push-service availability. The Capacitor Android app's embedded browser is not supported by this Web Push feature. Use the web page in Firefox. Browser installation as an app is not required.
 
 ## Launcher Presets
 
