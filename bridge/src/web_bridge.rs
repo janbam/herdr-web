@@ -4409,7 +4409,7 @@ fn run_agent_activity_subscription(
         return Ok(());
     };
     observe_agent_activity_snapshot(state, &baseline);
-    // Only this daemon stream owns push transitions. Browser refreshes cannot reset its baseline.
+    // Snapshot identities select terminals; only ordered stream events establish push statuses.
     let mut push_transitions = TransitionTracker::new(&baseline);
 
     loop {

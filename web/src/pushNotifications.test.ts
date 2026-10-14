@@ -23,9 +23,11 @@ const subscription = {
   unsubscribe: vi.fn(async () => true),
 };
 /** Browser registration boundary, not a substitute for real Firefox interoperability testing. */
+const activeWorker = Object.assign(new EventTarget(), { state: "activated" });
+/** Registration with an independently observable activation lifecycle. */
 const registration = {
-  scope: "", active: { state: "activated" },
-  pushManager: { getSubscription: vi.fn(async () => subscription), subscribe: vi.fn(async () => subscription) },
+  scope: "", active: activeWorker,
+  pushManager: { getSubscription: vi.fn<() => Promise<typeof subscription | null>>().mockResolvedValue(subscription), subscribe: vi.fn(async () => subscription) },
 };
 /** Worker container methods observed at enrollment and read boundaries. */
 const worker = { getRegistration: vi.fn(), register: vi.fn<(url: URL, options: RegistrationOptions) => Promise<typeof registration>>().mockResolvedValue(registration) };
@@ -33,6 +35,7 @@ const worker = { getRegistration: vi.fn(), register: vi.fn<(url: URL, options: R
 const fetchMock = vi.fn();
 
 beforeEach(() => {
+  activeWorker.state = "activated";
   vi.stubGlobal("crypto", webcrypto);
   vi.stubGlobal("isSecureContext", true);
   vi.stubGlobal("PushManager", class {});
@@ -87,6 +90,21 @@ describe("Web Push enrollment", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("https://host-b.test/api/push/subscription");
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ action: "save", subscription: subscription.toJSON(), preferences });
     expect(registration.pushManager.subscribe).not.toHaveBeenCalled();
+  });
+
+  it("waits for its own installing worker and creates a fresh subscription with the bridge key", async () => {
+    activeWorker.state = "activating";
+    const listen = vi.spyOn(activeWorker, "addEventListener");
+    registration.pushManager.getSubscription.mockResolvedValueOnce(null);
+    const enabling = enablePush(runtime(), publicKey, { blocked: true, idle: false }, Promise.resolve("granted"));
+    await vi.waitFor(() => expect(listen).toHaveBeenCalledWith("statechange", expect.any(Function)));
+    expect(registration.pushManager.subscribe).not.toHaveBeenCalled();
+    activeWorker.state = "activated";
+    activeWorker.dispatchEvent(new Event("statechange"));
+    const loaded = await enabling;
+    expect(loaded.subscription).toBe(subscription);
+    expect(registration.pushManager.subscribe).toHaveBeenCalledWith({ userVisibleOnly: true, applicationServerKey: decodePushKey(publicKey) });
+    listen.mockRestore();
   });
 
   it("failed saves stay visible and disabling removes only this bridge enrollment", async () => {

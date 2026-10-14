@@ -518,16 +518,30 @@ fn invalid(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, message)
 }
 
+/// Stable terminal identity and the last status observed in the same ordered event stream.
+struct TrackedPane {
+    terminal_id: String,
+    status: Option<AgentStatus>,
+}
+
 /// Per-subscription baseline. Bootstrap, reconnect, and terminal replacement are not transitions.
-pub(crate) struct TransitionTracker(HashMap<String, (String, AgentStatus)>);
+pub(crate) struct TransitionTracker(HashMap<String, TrackedPane>);
 
 impl TransitionTracker {
-    /// Establish an authoritative baseline without emitting startup notifications.
+    /// Seed identities only. Snapshot states may be newer than already-buffered stream events.
     pub(crate) fn new(panes: &[PaneInfo]) -> Self {
         Self(
             panes
                 .iter()
-                .map(|p| (p.pane_id.clone(), (p.terminal_id.clone(), p.agent_status)))
+                .map(|p| {
+                    (
+                        p.pane_id.clone(),
+                        TrackedPane {
+                            terminal_id: p.terminal_id.clone(),
+                            status: None,
+                        },
+                    )
+                })
                 .collect(),
         )
     }
@@ -535,22 +549,23 @@ impl TransitionTracker {
     /// Forget replaced terminals without overwriting observed states with browser snapshots.
     pub(crate) fn reconcile(&mut self, panes: &[PaneInfo]) -> bool {
         let previous_len = self.0.len();
-        self.0.retain(|id, (terminal, _)| {
+        self.0.retain(|id, tracked| {
             panes
                 .iter()
-                .any(|p| &p.pane_id == id && &p.terminal_id == terminal)
+                .any(|p| &p.pane_id == id && p.terminal_id == tracked.terminal_id)
         });
         self.0.len() != previous_len
     }
 
     /// Consume each status once, notifying only the two requested working transitions.
     pub(crate) fn observe(&mut self, pane_id: &str, status: AgentStatus) -> bool {
-        let Some((_, previous)) = self.0.get_mut(pane_id) else {
+        let Some(tracked) = self.0.get_mut(pane_id) else {
             return false;
         };
-        let notify = *previous == AgentStatus::Working
+        // The first event establishes stream order, never a snapshot-to-buffer transition.
+        let notify = tracked.status == Some(AgentStatus::Working)
             && matches!(status, AgentStatus::Blocked | AgentStatus::Idle);
-        *previous = status;
+        tracked.status = Some(status);
         notify
     }
 }

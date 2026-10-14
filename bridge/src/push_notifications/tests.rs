@@ -35,6 +35,7 @@ fn pane(terminal: &str, status: &str) -> PaneInfo {
 fn only_observed_working_to_blocked_or_idle_transitions_notify() {
     use AgentStatus::*;
     let mut tracker = TransitionTracker::new(&[pane("terminal1", "working")]);
+    assert!(!tracker.observe("p1", Working));
     assert!(tracker.observe("p1", Blocked));
     assert!(!tracker.observe("p1", Blocked));
     assert!(!tracker.observe("p1", Idle));
@@ -58,6 +59,15 @@ fn reconnect_and_terminal_replacement_do_not_invent_transitions() {
     assert!(!tracker.observe("p1", AgentStatus::Idle));
     let mut reconnected = TransitionTracker::new(&[pane("new", "idle")]);
     assert!(!reconnected.observe("p1", AgentStatus::Idle));
+}
+
+#[test]
+fn newer_snapshot_cannot_turn_older_buffered_idle_event_into_a_false_transition() {
+    // The snapshot has advanced past the queued idle event to working. Only stream order is causal.
+    let mut tracker = TransitionTracker::new(&[pane("terminal1", "working")]);
+    assert!(!tracker.observe("p1", AgentStatus::Idle));
+    assert!(!tracker.observe("p1", AgentStatus::Working));
+    assert!(tracker.observe("p1", AgentStatus::Blocked));
 }
 
 #[test]
