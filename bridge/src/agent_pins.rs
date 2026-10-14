@@ -419,6 +419,7 @@ mod tests {
             focused: false,
             cwd: None,
             foreground_cwd: None,
+            restore_error: None,
             label: None,
             agent: Some("codex".to_string()),
             agent_session: None,

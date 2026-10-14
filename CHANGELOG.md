@@ -12,6 +12,10 @@
 
 ### Changed
 
+- Refresh the minimal Herdr compatibility code to the `v0.9.4`/protocol `22` baseline while
+  retaining the existing per-terminal ANSI rendering, browser input, and shared-view behavior.
+  Terminal protocol `22` is unchanged, so the Herdr `v0.9.0` or newer requirement still holds.
+  [PR #3](https://github.com/janbam/herdr-web/pull/3).
 - Automatically increment Android `versionCode` and stamp `versionName` in the tagged release
   commit, keeping repeated builds of that release on the same Android version.
   [PR #91](https://github.com/kcosr/herdr-web/pull/91).

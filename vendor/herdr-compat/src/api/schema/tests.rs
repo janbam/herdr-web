@@ -658,6 +658,7 @@ fn success_response_round_trips() {
                 endpoint_protocol_generation: Some(1),
                 surface_interest: true,
                 health_check: true,
+                ssh_agent_registration: false,
             }),
         },
     };
@@ -750,6 +751,7 @@ fn worktree_request_and_response_round_trip() {
             root_pane: PaneInfo {
                 pane_id: "w_1-1".into(),
                 terminal_id: "term_1".into(),
+                restore_error: None,
                 workspace_id: "w_1".into(),
                 tab_id: "w_1:1".into(),
                 focused: true,
@@ -1178,6 +1180,7 @@ fn create_response_round_trips_with_root_pane() {
             root_pane: PaneInfo {
                 pane_id: "w_1-3".into(),
                 terminal_id: "term_example".into(),
+                restore_error: None,
                 workspace_id: "w_1".into(),
                 tab_id: "w_1:2".into(),
                 focused: false,
