@@ -16,6 +16,7 @@
 
 ### Fixed
 
+- Restore terminal Enter, Backspace, Delete, arrows, and navigation keys in Firefox Android when soft keyboards omit the physical key code, preserving terminal cursor modes and keyboard modifiers. [PR #8](https://github.com/janbam/herdr-web/pull/8).
 - Align terminal cell metrics to device-pixel boundaries (port of upstream ghostty-web PR #146), removing the hairline grid seams over selection and other per-cell background fills at fractional display ratios. [PR #2](https://github.com/janbam/herdr-web/pull/2).
 
 ### Removed
