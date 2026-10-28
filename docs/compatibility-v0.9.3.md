@@ -1,6 +1,6 @@
 # Historical upstream Herdr v0.9.3 compatibility report
 
-This report was imported from kcosr/herdr-web v0.6.2. Its compatibility baseline and verification results describe that upstream tree, not the current fork. The fork retains Herdr v0.9.4 compatibility and protocol 22 while integrating the event-recovery behavior described below. See [vendoring.md](vendoring.md) for the current baseline.
+This report was imported from kcosr/herdr-web v0.6.2. Its compatibility baseline and verification results describe that upstream tree, not the current fork. The fork uses a newer compatibility baseline with protocol 22 while integrating the event-recovery behavior described below. See [vendoring.md](vendoring.md) for the current baseline.
 
 ## Reviewed baseline
 
