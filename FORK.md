@@ -36,8 +36,17 @@ Introduced in [fork PR #8](https://github.com/janbam/herdr-web/pull/8).
 
 - **Why:** Firefox Android can receive special-key events with a correct `key` but an empty `code` from Unexpected-Keyboard, HeliBoard, and FlorisBoard. Pinned `ghostty-web` `0.4.0` otherwise drops these events, leaving the textarea's input deduplication suppressing the remaining Enter/Backspace/Delete path.
 - **Sources:** `FORK-OWNED` keyboard normalization in [web/src/terminalRenderer.ts](web/src/terminalRenderer.ts) and real Ghostty/WASM input regressions in [web/src/terminalRenderer.test.ts](web/src/terminalRenderer.test.ts).
-- **Preserve:** fill only missing codes for explicitly recognized non-numpad special keys through the existing custom-key hook. Keep composition and keyCode `229` guards, populated codes, printable input, modifiers, live application-cursor mode, and the original event's cancellation semantics. Ghostty remains the only special-key encoder; do not add hardcoded arrow sequences or a second input path.
+- **Preserve:** fill only missing codes for explicitly recognized non-numpad special keys through the existing custom-key hook. Keep composition and keyCode `229` guards, populated codes, printable input, modifiers, live application-cursor mode, and the original event's cancellation semantics. Delegate encoding to Ghostty except for the explicit custom chords documented below; do not add hardcoded arrow sequences or a second input path.
 - **Removal:** after a dependency upgrade, verify equivalent codeless-key handling and single-emission behavior in Firefox Android before removing this normalization.
+
+### Distinct Shift+Enter for agent editors
+
+Introduced in [fork PR #9](https://github.com/janbam/herdr-web/pull/9).
+
+- **Why:** pinned `ghostty-web` `0.4.0` encodes Shift+Enter as plain Enter, submitting prompts instead of inserting a newline in Pi, Codex, and Claude Code.
+- **Sources:** the shared textarea/custom-key policy in [web/src/terminalRenderer.ts](web/src/terminalRenderer.ts), the on-screen shortcut encoder in [web/src/mobileTerminalControls.ts](web/src/mobileTerminalControls.ts), and their adjacent regression tests.
+- **Preserve:** exact Shift+Enter sends CSI-u `ESC[13;2u` once from physical keyboards, soft keyboards, and the on-screen shortcut builder. Ordinary Enter and chords with additional modifiers retain existing behavior. Composition guards and keydown cancellation remain in place. This is a single-chord policy, not full Kitty keyboard protocol negotiation or foreground-app detection. Programs without CSI-u support need not treat it as a newline.
+- **Removal:** remove only after equivalent distinct Shift+Enter encoding is verified for both direct terminal input and on-screen shortcuts. Do not replace it with LF, which loses chord identity and can submit shell commands.
 
 ### Herdr v0.9.5 compatibility baseline
 

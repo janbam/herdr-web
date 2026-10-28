@@ -1866,11 +1866,20 @@ function cleanupEditableArtifacts(container: HTMLElement | null) {
   }
 }
 
+/** Preserve distinct Shift-only terminal chords that Ghostty otherwise collapses. */
 function customKeyboardEventOutput(event: KeyboardEvent) {
-  if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
-    return "\x1B[Z";
+  if (!event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) {
+    return null;
   }
-  return null;
+  switch (event.key) {
+    case "Tab":
+      return "\x1B[Z";
+    case "Enter":
+      // FORK-OWNED: preserve Shift+Enter for agent editors instead of sending submit.
+      return "\x1B[13;2u";
+    default:
+      return null;
+  }
 }
 
 /** Logical special-key names that unambiguously match a standard, non-numpad code. */

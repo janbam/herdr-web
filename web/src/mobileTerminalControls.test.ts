@@ -31,9 +31,15 @@ describe("encodeMobileTerminalChord", () => {
     expect(encodeMobileTerminalChord(specialKey("tab"), ["shift"])).toBe("\x1B[Z");
   });
 
+  it("distinguishes Shift+Enter from submit using CSI-u", () => {
+    expect(encodeMobileTerminalChord(specialKey("enter"), ["shift"])).toBe("\x1B[13;2u");
+  });
+
   it.each([
     ["enter", [], "\r"],
     ["enter", ["alt"], "\x1B\r"],
+    ["enter", ["ctrl", "shift"], "\r"],
+    ["enter", ["alt", "shift"], "\x1B\r"],
     ["backspace", ["alt"], "\x1B\x7F"],
     ["backspace", ["ctrl"], "\x08"],
     ["backspace", ["ctrl", "alt"], "\x1B\x08"],

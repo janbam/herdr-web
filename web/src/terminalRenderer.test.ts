@@ -310,6 +310,29 @@ describe("codeless terminal special keys", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
+  it.each(["", "Enter", "NumpadEnter"])("preserves Shift+Enter as CSI-u with code '%s'", (code) => {
+    const event = new KeyboardEvent("keydown", {
+      key: "Enter", code, shiftKey: true, bubbles: true, cancelable: true,
+    });
+    expect(encode(event)).toEqual(["\x1B[13;2u"]);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it.each([
+    { ctrlKey: true },
+    { altKey: true },
+    { metaKey: true },
+    { isComposing: true },
+    { keyCode: 229 },
+  ])("does not intercept Shift+Enter with other modifiers or composition: %j", (init) => {
+    const event = new KeyboardEvent("keydown", {
+      key: "Enter", code: "Enter", shiftKey: true, ...init,
+    });
+    const terminal = terminalInput("");
+    expect(handleTerminalCustomKeyEvent(event, terminal)).toBe(false);
+    expect(terminal.input).not.toHaveBeenCalled();
+  });
+
   it("reads live application cursor mode for codeless arrows", () => {
     let applicationCursor = false;
     const host = document.createElement("div");

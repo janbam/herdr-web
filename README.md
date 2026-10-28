@@ -460,6 +460,8 @@ Adjust the `herdr` path if it is not installed in `~/.cargo/bin`. Restarting `he
 
 ## Keyboard Shortcuts
 
+In direct terminal input, Shift+Enter inserts a newline in Pi, Codex, and current Claude Code by sending the distinct CSI-u Shift+Enter sequence. The mobile shortcut builder sends the same chord. Plain Enter is unchanged. This requires an application that understands CSI-u; it is not a universal shell newline shortcut.
+
 These app shortcuts are ignored while dialogs, menus, and normal text inputs are active. They still
 work when the terminal's hidden keyboard input has focus. OS-reserved shortcuts such as `Cmd+Tab`,
 `Meta+Tab`, or some `Alt+Tab` setups may not reach the browser.
