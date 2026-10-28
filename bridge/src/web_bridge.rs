@@ -4625,9 +4625,9 @@ fn is_timeout_error(err: &ApiClientError) -> bool {
     )
 }
 
-// A subscription can emit a normal API error response after its initial ack,
-// notably `events_lost` when the daemon drops events for a slow subscriber.
+/// Reject subscription error responses, including post-acknowledgement `events_lost`.
 fn check_subscription_value(value: &serde_json::Value) -> Result<(), BridgeError> {
+    // End a broken stream before callers process events or infer status transitions.
     if value.get("error").is_some() {
         let response = serde_json::from_value(value.clone()).map_err(ApiClientError::Json)?;
         return Err(ApiClientError::ErrorResponse(response).into());

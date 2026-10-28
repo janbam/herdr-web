@@ -1,13 +1,17 @@
+//! Exercise subscription recovery through real daemon sockets and browser WebSockets.
+
 use super::*;
 use std::io::{BufRead, BufReader, Read};
 use std::os::unix::net::{UnixListener, UnixStream};
 
+/// A private socket that scripts the daemon's JSON request and subscription boundaries.
 struct FakeDaemon {
     listener: UnixListener,
     path: PathBuf,
 }
 
 impl FakeDaemon {
+    /// Bind a unique daemon endpoint without blocking the test runner indefinitely.
     fn new() -> Self {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         let path = std::env::temp_dir().join(format!(
@@ -20,6 +24,7 @@ impl FakeDaemon {
         Self { listener, path }
     }
 
+    /// Accept a bounded request and verify which daemon method the bridge invoked.
     fn accept(&self, method: &str) -> (UnixStream, serde_json::Value) {
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         let socket = loop {
@@ -44,6 +49,7 @@ impl FakeDaemon {
         (socket, request)
     }
 
+    /// Acknowledge a subscription while retaining control of its live event stream.
     fn subscribe(&self) -> UnixStream {
         let (mut socket, request) = self.accept("events.subscribe");
         respond(
@@ -54,6 +60,7 @@ impl FakeDaemon {
         socket
     }
 
+    /// Return the pane membership visible at one snapshot boundary.
     fn panes(&self, panes: Vec<PaneInfo>) {
         let (mut socket, request) = self.accept("pane.list");
         respond(
@@ -72,6 +79,7 @@ impl Drop for FakeDaemon {
     }
 }
 
+/// Send a successful response correlated to the bridge's request.
 fn respond(socket: &mut UnixStream, request: &serde_json::Value, result: serde_json::Value) {
     writeln!(
         socket,
@@ -81,12 +89,14 @@ fn respond(socket: &mut UnixStream, request: &serde_json::Value, result: serde_j
     .unwrap();
 }
 
+/// Invalidate stream continuity without closing the underlying daemon socket.
 fn lost_events(socket: &mut UnixStream) {
     writeln!(socket, "{}", serde_json::json!({
         "id": "subscription", "error": {"code": "events_lost", "message": "events lost; resubscribe"}
     })).unwrap();
 }
 
+/// Isolate bridge stores and disable push delivery for recovery tests.
 fn test_state(api_path: PathBuf) -> BridgeState {
     BridgeState {
         api: ApiClient::for_socket_path(api_path.clone()),
@@ -113,6 +123,7 @@ fn test_state(api_path: PathBuf) -> BridgeState {
     }
 }
 
+/// Route real WebSocket clients through the production structural-event handler.
 async fn test_events_handler(ws: WebSocketUpgrade, State(state): State<BridgeState>) -> Response {
     ws.on_upgrade(move |socket| handle_events_socket(socket, state))
         .into_response()

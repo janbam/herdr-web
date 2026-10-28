@@ -10,7 +10,7 @@
 
 ### Changed
 
-- Merge upstream herdr-web v0.6.2, including event-stream recovery, while preserving fork-specific SSH-only access, terminal metrics, Web Push, and the newer Herdr v0.9.4 compatibility baseline.
+- Merge upstream herdr-web v0.6.2, including event-stream recovery, while preserving fork-specific SSH-only access, terminal metrics, Web Push, and the newer Herdr v0.9.4 compatibility baseline. [PR #5](https://github.com/janbam/herdr-web/pull/5).
 - Refresh the minimal Herdr compatibility code to the `v0.9.4`/protocol `22` baseline while retaining the existing per-terminal ANSI rendering, browser input, and shared-view behavior. Terminal protocol `22` is unchanged, so the Herdr `v0.9.0` or newer requirement still holds. [PR #3](https://github.com/janbam/herdr-web/pull/3).
 
 ### Fixed
