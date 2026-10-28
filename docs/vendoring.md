@@ -1,7 +1,7 @@
 # Vendoring Herdr Compatibility
 
 `herdr-web` vendors a small Herdr compatibility crate because the bridge depends on private API and
-wire protocol details needed for its existing per-terminal ANSI attach behavior. Herdr v0.9.0 also
+wire protocol details needed for its existing per-terminal ANSI attach behavior. Herdr v0.9.3 also
 provides stable whole-tab endpoints, but this bridge deliberately retains the pane-oriented ANSI path.
 
 ## What Is Vendored
@@ -33,6 +33,7 @@ The browser app is not vendored into Herdr. It lives at `web/`, and `herdr-web-b
 ## Current Reference
 
 - Upstream checkout: a clean Herdr source checkout outside this repository
+- Upstream repository: <https://github.com/herdrdev/herdr>
 - Upstream release baseline: `v0.9.4`
 - Terminal wire baseline: protocol `22`
 - Upstream commit: `7e26bad94044eba205033111a0ce8033ede7e24f`
@@ -100,6 +101,8 @@ src/server/socket_paths.rs -> vendor/herdr-compat/src/server/socket_paths.rs
 3. Preserve intentional local adaptations:
 
 - `ApiClient` takes concrete socket paths; it must not know bridge session rules.
+  It retains bridge request timeouts and partial subscription-line buffering. The upstream v0.9.3
+  status polling/deadline implementation is not copied into this adapted client.
 - `logging::init_file_logging` takes a concrete directory from the bridge.
 - socket path helpers derive paths from supplied overrides/defaults; bridge session resolution stays
   in `bridge/src/session.rs`.
@@ -155,6 +158,11 @@ protocol exactly `22`. Older daemons and any unreviewed newer protocol are rejec
 the web app. The version floor covers the private JSON API shape, including the managed
 `agent.start` contract; the exact protocol check protects the copied bincode terminal wire format.
 This is not a complete stability guarantee because the bridge mirrors private APIs.
+
+The reviewed source baseline is v0.9.4; the runtime version floor remains v0.9.0 because the
+commands and direct-terminal wire shapes used by the bridge are unchanged. The refresh removes
+the retired `pane.graphics.*` schema and includes additive API fields without exposing new browser
+commands. See [compatibility-v0.9.3.md](compatibility-v0.9.3.md) for the historical upstream validation report and event-recovery rationale, not validation of this fork's newer baseline.
 
 When updating Herdr:
 

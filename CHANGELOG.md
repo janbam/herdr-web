@@ -8,16 +8,29 @@
 
 - Add per-browser Web Push notifications for agent transitions from working to blocked or idle, with per-bridge preferences and a test notification in Settings → Notifications. Supports Firefox Android while the page is closed, subject to browser permission and OS restrictions. [PR #4](https://github.com/janbam/herdr-web/pull/4).
 
+### Changed
+
+- Merge upstream herdr-web v0.6.2, including event-stream recovery, while preserving fork-specific SSH-only access, terminal metrics, Web Push, and the newer Herdr v0.9.4 compatibility baseline.
+- Refresh the minimal Herdr compatibility code to the `v0.9.4`/protocol `22` baseline while retaining the existing per-terminal ANSI rendering, browser input, and shared-view behavior. Terminal protocol `22` is unchanged, so the Herdr `v0.9.0` or newer requirement still holds. [PR #3](https://github.com/janbam/herdr-web/pull/3).
+
+### Fixed
+
+- Align terminal cell metrics to device-pixel boundaries (port of upstream ghostty-web PR #146), removing the hairline grid seams over selection and other per-cell background fills at fractional display ratios. [PR #2](https://github.com/janbam/herdr-web/pull/2).
+
+### Removed
+
+## [0.6.2] - 2026-10-07
+
+### Added
+
 - Allow configured bridge URLs to include a reverse-proxy path prefix for same-origin multi-bridge
   deployments. [PR #94](https://github.com/kcosr/herdr-web/pull/94), contributed by
   [Will Hampson (@Whamp)](https://github.com/Whamp).
 
 ### Changed
 
-- Refresh the minimal Herdr compatibility code to the `v0.9.4`/protocol `22` baseline while
-  retaining the existing per-terminal ANSI rendering, browser input, and shared-view behavior.
-  Terminal protocol `22` is unchanged, so the Herdr `v0.9.0` or newer requirement still holds.
-  [PR #3](https://github.com/janbam/herdr-web/pull/3).
+- Refresh vendored Herdr compatibility to v0.9.3, retaining terminal protocol 22 and the
+  v0.9.0 runtime minimum. [PR #95](https://github.com/kcosr/herdr-web/pull/95).
 - Automatically increment Android `versionCode` and stamp `versionName` in the tagged release
   commit, keeping repeated builds of that release on the same Android version.
   [PR #91](https://github.com/kcosr/herdr-web/pull/91).
@@ -27,15 +40,13 @@
 
 ### Fixed
 
-- Align terminal cell metrics to device-pixel boundaries (port of upstream ghostty-web PR #146),
-  removing the hairline grid seams over selection and other per-cell background fills at
-  fractional display ratios. [PR #2](https://github.com/janbam/herdr-web/pull/2).
+- Recover structural and activity event streams after lost events or disconnects, refresh
+  snapshots on resubscription, and release disconnected browser readers.
+  [PR #95](https://github.com/kcosr/herdr-web/pull/95).
 - Send protocol-level pings on idle browser WebSockets and close connections that do not return peer
   traffic within 15 seconds, removing dead transports without claiming to detect frozen JavaScript.
   [PR #93](https://github.com/kcosr/herdr-web/pull/93), contributed by
   [Will Hampson (@Whamp)](https://github.com/Whamp).
-
-### Removed
 
 ## [0.6.1] - 2026-09-12
 

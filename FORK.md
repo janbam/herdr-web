@@ -6,8 +6,8 @@ Keep this ledger current whenever fork-owned behavior, dependencies, compatibili
 
 ## Integration reference
 
-- Last shared ancestor with the inspected web upstream: `f1312e2ffbe8d5b62db57ced66c3c56c4cdebdfb` (same-origin bridge paths, upstream PR #94).
-- Web upstream inspected for this ledger: `92717f433b00881724b7f8bff328fb07d9fceab6` (after v0.6.2). It has not been merged into this tree.
+- Latest merged web-upstream release: `v0.6.2`, commit `3631731ace5234f1c0c599cc3bb87535bcc452ae`, which is now the shared ancestor with the inspected upstream.
+- Web upstream inspected for this ledger: `92717f433b00881724b7f8bff328fb07d9fceab6`. Its post-release changelog-template reset is not part of the release merge; the fork retains its own Unreleased entries.
 - Herdr itself is a separate upstream: the compatibility copy is based on Herdr `v0.9.4`, commit `7e26bad94044eba205033111a0ce8033ede7e24f`, terminal protocol `22`. Do not confuse a web-upstream merge with a Herdr vendor refresh.
 
 ## Fork-owned changes
@@ -37,7 +37,7 @@ Introduced in [fork PR #3](https://github.com/janbam/herdr-web/pull/3), commit `
 - **Why:** keep the minimal private API/wire copy aligned with the reviewed Herdr release without vendoring the full application.
 - **Sources:** [vendor/herdr-compat](vendor/herdr-compat/), [scripts/check-vendor.sh](scripts/check-vendor.sh), bridge schema fixtures, and [docs/vendoring.md](docs/vendoring.md).
 - **Preserve:** Herdr runtime floor `v0.9.0`, exact terminal protocol `22`, pane-oriented ANSI attach, and narrow browser command exposure. Copied additive API fields are not authorization to expose new commands. Retain documented local socket/logging/rename/input adaptations and exact production-wire drift checks.
-- **Integration:** upstream web's v0.9.3 refresh overlaps this work. Reconcile it against the newer reviewed v0.9.4 copy; do not downgrade the pin or discard fork adaptations by choosing one side wholesale. Follow the vendoring guide for later refreshes.
+- **Integration:** upstream web's v0.9.3 refresh was reconciled during the v0.6.2 merge by retaining the newer reviewed v0.9.4 copy, shims, and wire tests. Do not downgrade the pin or discard fork adaptations during later merges. Follow the vendoring guide for later refreshes.
 
 ### Background Web Push and portable crypto packaging
 
@@ -49,11 +49,11 @@ Introduced in [fork PR #4](https://github.com/janbam/herdr-web/pull/4), commits 
 - **Transition policy:** only ordered events from one daemon subscription establish prior status. The first event seeds status without alerting; startup/reconnect snapshots are not catch-up notifications. Reset/reconcile tracking when streams or terminal identities change. An already-running agent can finish without an alert before an event baseline is established.
 - **Security/delivery policy:** send only pane IDs and destination states, never titles, prompts, or terminal output. Preserve Host/Origin checks, bounded enrollment/request/queue/concurrency limits, Mozilla/Firebase HTTPS endpoint validation, no redirects or ambient proxies, and credential-free logs. Prune definitively expired subscriptions; retain them on transient failures. Delivery is best-effort, not a durable alert history.
 - **Packaging:** encryption uses `ece`/OpenSSL, signing uses `p256`, and delivery uses `reqwest` with native TLS. Source builds require OpenSSL development libraries and `pkg-config`; desktop packaging explicitly selects static OpenSSL and refuses external `libssl`/`libcrypto` linkage. Preserve that portability guard when changing dependencies or build scripts.
-- **Integration:** upstream event recovery touches the same activity watcher. Preserve rebaselining and the no-snapshot-transition policy when adopting it. Replace this implementation only after equivalent enrollment isolation, privacy, background delivery, and packaging behavior are verified.
+- **Integration:** upstream v0.6.2 event recovery is integrated into the activity watcher. Successful subscriptions request browser resync while creating a fresh push tracker; stream errors are rejected before transition processing. Preserve rebaselining and the no-snapshot-transition policy during later changes. Replace this implementation only after equivalent enrollment isolation, privacy, background delivery, and packaging behavior are verified.
 
 ## Known upstream work not integrated
 
-The inspected web upstream includes [PR #95](https://github.com/kcosr/herdr-web/pull/95): Herdr v0.9.3 compatibility plus event-subscription recovery (`events_lost`/EOF handling, resubscription, post-acknowledgement browser resync, membership refresh, and retry reset). Our v0.9.4 vendor refresh does **not** imply those bridge recovery changes are present. Review that implementation and its subscription tests during the next sync, especially where it overlaps push tracking. Upstream v0.6.2 release/changelog/Android version changes also remain unmerged; release metadata is not a fork feature to preserve blindly.
+No functional web-upstream work through v0.6.2 remains unintegrated. [PR #95](https://github.com/kcosr/herdr-web/pull/95) event recovery, subscription regressions, and Android release metadata are merged. The historical [upstream compatibility report](docs/compatibility-v0.9.3.md) describes upstream's v0.9.3 validation, not this fork's newer baseline.
 
 ## Upstream merge checklist
 
