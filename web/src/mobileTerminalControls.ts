@@ -167,8 +167,12 @@ export function encodeMobileTerminalChord(
     return encodePrintableTerminalChord(encoding.value, uniqueModifiers);
   }
   if (encoding.kind === "literal") {
-    // The composer sends legacy VT input; it does not negotiate modifyOtherKeys.
-    // Ctrl+Tab/Enter/Escape and Shift+Backspace/Enter/Escape have no distinct legacy encoding.
+    // Match direct terminal input for exact Shift+Enter without changing mixed chords.
+    if (key.id === "enter" && uniqueModifiers.size === 1 && uniqueModifiers.has("shift")) {
+      return "\x1B[13;2u";
+    }
+    // Other literal chords retain legacy VT encoding without protocol negotiation.
+    // Ctrl+Tab/Enter/Escape and Shift+Backspace/Escape have no distinct legacy encoding.
     let data = uniqueModifiers.has("shift") && encoding.shiftedData
       ? encoding.shiftedData
       : encoding.data;
