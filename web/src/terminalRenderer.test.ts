@@ -1,4 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+/** @vitest-environment jsdom */
+import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { Ghostty, InputHandler } from "ghostty-web";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
   applyDevicePixelRatio,
   devicePixelAlignedFontMetrics,
@@ -270,6 +274,109 @@ describe("terminal selection copy shortcuts", () => {
     expect(terminal.input).toHaveBeenCalledOnce();
     expect(terminal.input).toHaveBeenCalledWith("\x03", true);
   });
+});
+
+describe("codeless terminal special keys", () => {
+  /** Real pinned encoder, shared across independent input handlers. */
+  let ghostty: Ghostty;
+
+  beforeAll(async () => {
+    // Load the installed WASM directly so mode/modifier assertions use Ghostty's encoder.
+    const wasm = await readFile(createRequire(import.meta.url).resolve("ghostty-web/ghostty-vt.wasm"));
+    const { instance } = await WebAssembly.instantiate(new Uint8Array(wasm), {
+      env: { log: vi.fn() },
+    });
+    ghostty = new Ghostty(instance);
+  });
+
+  it.each([
+    ["Enter", "\r"],
+    ["Backspace", "\x7F"],
+    ["Delete", "\x1B[3~"],
+    ["ArrowUp", "\x1B[A"],
+    ["ArrowDown", "\x1B[B"],
+    ["ArrowRight", "\x1B[C"],
+    ["ArrowLeft", "\x1B[D"],
+    ["Home", "\x1B[H"],
+    ["End", "\x1B[F"],
+    ["PageUp", "\x1B[5~"],
+    ["PageDown", "\x1B[6~"],
+    ["Insert", "\x1B[2~"],
+    ["Escape", "\x1B"],
+    ["Tab", "\t"],
+  ])("encodes codeless %s exactly once and cancels its default edit", (key, output) => {
+    const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+    expect(encode(event)).toEqual([output]);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("reads live application cursor mode for codeless arrows", () => {
+    let applicationCursor = false;
+    const host = document.createElement("div");
+    const output = vi.fn();
+    const handler = new InputHandler(
+      ghostty, host, output, vi.fn(), undefined,
+      (event) => handleTerminalCustomKeyEvent(event, terminalInput("")),
+      () => applicationCursor,
+    );
+    try {
+      host.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp" }));
+      applicationCursor = true;
+      host.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp" }));
+      expect(output.mock.calls).toEqual([["\x1B[A"], ["\x1BOA"]]);
+    } finally {
+      handler.dispose();
+    }
+  });
+
+  it.each([
+    { key: "ArrowLeft", ctrlKey: true },
+    { key: "ArrowDown", altKey: true },
+    { key: "ArrowRight", shiftKey: true },
+    { key: "Enter", altKey: true },
+    { key: "Backspace", ctrlKey: true },
+    { key: "Tab", shiftKey: true },
+  ])("preserves Ghostty's code-bearing encoding for $key modifiers", (init) => {
+    const expected = encode(new KeyboardEvent("keydown", { ...init, code: init.key }));
+    expect(expected).toHaveLength(1);
+    expect(encode(new KeyboardEvent("keydown", init))).toEqual(expected);
+  });
+
+  it.each([
+    { key: "Enter", code: "NumpadEnter" },
+    { key: "ArrowUp", code: "ArrowUp" },
+    { key: "ArrowUp", location: 3 },
+    { key: "Delete", location: 3 },
+    { key: "Enter", location: 3 },
+    { key: "x" },
+    { key: "Dead" },
+    { key: "Unidentified" },
+    { key: "F1" },
+    { key: "Enter", isComposing: true },
+    { key: "Backspace", keyCode: 229 },
+  ])("leaves unsupported, physical, numpad and composing events untouched: %j", (init) => {
+    const event = new KeyboardEvent("keydown", init);
+    expect(handleTerminalCustomKeyEvent(event, terminalInput(""))).toBe(false);
+    expect(event.code).toBe(init.code ?? "");
+    expect(Object.hasOwn(event, "code")).toBe(false);
+  });
+
+  /** Dispatch through Ghostty's real DOM listener and the production custom hook. */
+  function encode(event: KeyboardEvent) {
+    const host = document.createElement("div");
+    const output = vi.fn();
+    const terminal = { getSelection: () => "", input: output };
+    const handler = new InputHandler(
+      ghostty, host, output, vi.fn(), undefined,
+      (key) => handleTerminalCustomKeyEvent(key, terminal),
+    );
+    try {
+      host.dispatchEvent(event);
+      return output.mock.calls.map(([data]) => data);
+    } finally {
+      handler.dispose();
+    }
+  }
 });
 
 function keyEvent(overrides: Partial<KeyboardEvent> = {}) {

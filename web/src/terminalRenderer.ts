@@ -1873,6 +1873,14 @@ function customKeyboardEventOutput(event: KeyboardEvent) {
   return null;
 }
 
+/** Logical special-key names that unambiguously match a standard, non-numpad code. */
+const CODELESS_TERMINAL_KEYS = new Set([
+  "Enter", "Backspace", "Delete", "Tab", "Escape",
+  "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+  "Home", "End", "PageUp", "PageDown", "Insert",
+]);
+
+/** Consume terminal shortcuts or repair codeless special keys before Ghostty encodes them. */
 export function handleTerminalCustomKeyEvent(
   event: KeyboardEvent,
   terminal: Pick<Terminal, "getSelection" | "input">,
@@ -1880,6 +1888,15 @@ export function handleTerminalCustomKeyEvent(
 ) {
   if (isImeComposingKeyEvent(event)) {
     return false;
+  }
+  // FORK-OWNED (#7): Gecko soft keyboards can omit code. Shadow only that
+  // missing field so Ghostty keeps ownership of modifiers, modes and cancellation.
+  if (
+    event.code === "" &&
+    event.location !== KeyboardEvent.DOM_KEY_LOCATION_NUMPAD &&
+    CODELESS_TERMINAL_KEYS.has(event.key)
+  ) {
+    Object.defineProperty(event, "code", { value: event.key, configurable: true });
   }
   // Ghostty copies the canonical selection on mouseup. Consume the matching
   // desktop copy shortcut here so its input handler cannot also emit ^C.

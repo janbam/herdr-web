@@ -30,6 +30,15 @@ Introduced in [fork PR #2](https://github.com/janbam/herdr-web/pull/2), commit `
 - **Preserve:** round font metrics to device-pixel boundaries; remeasure and refit on device-pixel-ratio changes; forward resulting terminal dimensions to the bridge. This ports the font-metrics portion of ghostty-web PR #146, not its render-loop redesign. Keep the existing event-driven rendering behavior.
 - **Removal:** after a dependency upgrade, verify equivalent metrics and display-ratio handling, then remove the superseded runtime overrides and watchers. An upstream PR's existence alone is not proof that the installed package includes the fix.
 
+### Codeless Android terminal keys
+
+Introduced in [fork PR #8](https://github.com/janbam/herdr-web/pull/8).
+
+- **Why:** Firefox Android can receive special-key events with a correct `key` but an empty `code` from Unexpected-Keyboard, HeliBoard, and FlorisBoard. Pinned `ghostty-web` `0.4.0` otherwise drops these events, leaving the textarea's input deduplication suppressing the remaining Enter/Backspace/Delete path.
+- **Sources:** `FORK-OWNED` keyboard normalization in [web/src/terminalRenderer.ts](web/src/terminalRenderer.ts) and real Ghostty/WASM input regressions in [web/src/terminalRenderer.test.ts](web/src/terminalRenderer.test.ts).
+- **Preserve:** fill only missing codes for explicitly recognized non-numpad special keys through the existing custom-key hook. Keep composition and keyCode `229` guards, populated codes, printable input, modifiers, live application-cursor mode, and the original event's cancellation semantics. Ghostty remains the only special-key encoder; do not add hardcoded arrow sequences or a second input path.
+- **Removal:** after a dependency upgrade, verify equivalent codeless-key handling and single-emission behavior in Firefox Android before removing this normalization.
+
 ### Herdr v0.9.5 compatibility baseline
 
 Introduced in [fork PR #3](https://github.com/janbam/herdr-web/pull/3), commit `e86e0b1`.
