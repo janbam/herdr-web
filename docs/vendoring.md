@@ -34,9 +34,9 @@ The browser app is not vendored into Herdr. It lives at `web/`, and `herdr-web-b
 
 - Upstream checkout: a clean Herdr source checkout outside this repository
 - Upstream repository: <https://github.com/herdrdev/herdr>
-- Upstream release baseline: `v0.9.4`
+- Upstream release baseline: `v0.9.5`
 - Terminal wire baseline: protocol `22`
-- Upstream commit: `7e26bad94044eba205033111a0ce8033ede7e24f`
+- Upstream commit: `2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01`
 
 Use the upstream checkout as an external reference for audits and refreshes. It is not required to
 build `herdr-web`.
@@ -65,7 +65,7 @@ bridge narrows the drift check to only the terminal attach message regions.
 
 ## Refresh Process
 
-Use a clean Herdr checkout at the reviewed `v0.9.4` release tag as the source reference. Do not
+Use a clean Herdr checkout at the reviewed `v0.9.5` release tag as the source reference. Do not
 refresh from an experimental tree that may contain unrelated local drift. Copy the reviewed
 upstream source files into the minimal compatibility crate; do not make the bridge compile against
 the external checkout or recreate a full upstream vendor snapshot.
@@ -159,10 +159,9 @@ the web app. The version floor covers the private JSON API shape, including the 
 `agent.start` contract; the exact protocol check protects the copied bincode terminal wire format.
 This is not a complete stability guarantee because the bridge mirrors private APIs.
 
-The reviewed source baseline is v0.9.4; the runtime version floor remains v0.9.0 because the
-commands and direct-terminal wire shapes used by the bridge are unchanged. The refresh removes
-the retired `pane.graphics.*` schema and includes additive API fields without exposing new browser
-commands. See [compatibility-v0.9.3.md](compatibility-v0.9.3.md) for the historical upstream validation report and event-recovery rationale, not validation of this fork's newer baseline.
+The reviewed source baseline is v0.9.5. The runtime version floor remains v0.9.0 because the commands and direct-terminal wire shapes used by the bridge are unchanged. The compatibility copy excludes the retired `pane.graphics.*` schema and includes additive API fields without exposing new browser commands. See [compatibility-v0.9.3.md](compatibility-v0.9.3.md) for the historical upstream validation report and event-recovery rationale, not validation of this fork's newer baseline.
+
+The v0.9.4 to v0.9.5 source audit found no changes to the compatibility source modules listed above, upstream wire tests, or terminal attach handlers under `src/server/headless/`. No vendored Rust changes are needed. Upstream's Codex state-source policy change in `agent_resume.rs` belongs to the daemon, not the local `AgentSessionRefKind` shim. The unchanged wire-test module retains its v0.9.4 provenance comment.
 
 When updating Herdr:
 

@@ -8,7 +8,7 @@ Keep this ledger current whenever fork-owned behavior, dependencies, compatibili
 
 - Latest merged web-upstream release: `v0.6.2`, commit `3631731ace5234f1c0c599cc3bb87535bcc452ae`, which is now the shared ancestor with the inspected upstream.
 - Web upstream inspected for this ledger: `92717f433b00881724b7f8bff328fb07d9fceab6`. Its post-release changelog-template reset is not part of the release merge; the fork retains its own Unreleased entries.
-- Herdr itself is a separate upstream: the compatibility copy is based on Herdr `v0.9.4`, commit `7e26bad94044eba205033111a0ce8033ede7e24f`, terminal protocol `22`. Do not confuse a web-upstream merge with a Herdr vendor refresh.
+- Herdr itself is a separate upstream: the compatibility copy is based on Herdr `v0.9.5`, commit `2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01`, terminal protocol `22`. Do not confuse a web-upstream merge with a Herdr vendor refresh.
 
 ## Fork-owned changes
 
@@ -30,13 +30,14 @@ Introduced in [fork PR #2](https://github.com/janbam/herdr-web/pull/2), commit `
 - **Preserve:** round font metrics to device-pixel boundaries; remeasure and refit on device-pixel-ratio changes; forward resulting terminal dimensions to the bridge. This ports the font-metrics portion of ghostty-web PR #146, not its render-loop redesign. Keep the existing event-driven rendering behavior.
 - **Removal:** after a dependency upgrade, verify equivalent metrics and display-ratio handling, then remove the superseded runtime overrides and watchers. An upstream PR's existence alone is not proof that the installed package includes the fix.
 
-### Herdr v0.9.4 compatibility baseline
+### Herdr v0.9.5 compatibility baseline
 
 Introduced in [fork PR #3](https://github.com/janbam/herdr-web/pull/3), commit `e86e0b1`.
 
 - **Why:** keep the minimal private API/wire copy aligned with the reviewed Herdr release without vendoring the full application.
 - **Sources:** [vendor/herdr-compat](vendor/herdr-compat/), [scripts/check-vendor.sh](scripts/check-vendor.sh), bridge schema fixtures, and [docs/vendoring.md](docs/vendoring.md).
 - **Preserve:** Herdr runtime floor `v0.9.0`, exact terminal protocol `22`, pane-oriented ANSI attach, and narrow browser command exposure. Copied additive API fields are not authorization to expose new commands. Retain documented local socket/logging/rename/input adaptations and exact production-wire drift checks.
+- **Current baseline:** the v0.9.5 refresh advances the source pin after verifying that the copied compatibility surface and terminal attach handlers are unchanged from v0.9.4. No vendored Rust changes are required.
 - **Integration:** upstream web's v0.9.3 refresh was reconciled during the v0.6.2 merge by retaining the newer reviewed v0.9.4 copy, shims, and wire tests. Do not downgrade the pin or discard fork adaptations during later merges. Follow the vendoring guide for later refreshes.
 
 ### Background Web Push and portable crypto packaging

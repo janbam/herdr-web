@@ -10,6 +10,7 @@
 
 ### Changed
 
+- Advance the reviewed Herdr compatibility baseline to `v0.9.5`. The copied API and terminal wire sources are unchanged from `v0.9.4`, so protocol `22`, the `v0.9.0` runtime minimum, and bridge behavior remain unchanged. [PR #6](https://github.com/janbam/herdr-web/pull/6).
 - Merge upstream herdr-web v0.6.2, including event-stream recovery, while preserving fork-specific SSH-only access, terminal metrics, Web Push, and the newer Herdr v0.9.4 compatibility baseline. [PR #5](https://github.com/janbam/herdr-web/pull/5).
 - Refresh the minimal Herdr compatibility code to the `v0.9.4`/protocol `22` baseline while retaining the existing per-terminal ANSI rendering, browser input, and shared-view behavior. Terminal protocol `22` is unchanged, so the Herdr `v0.9.0` or newer requirement still holds. [PR #3](https://github.com/janbam/herdr-web/pull/3).
 
