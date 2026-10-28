@@ -6,6 +6,8 @@
 
 ### Added
 
+- Add per-browser Web Push notifications for agent transitions from working to blocked or idle, with per-bridge preferences and a test notification in Settings → Notifications. Supports Firefox Android while the page is closed, subject to browser permission and OS restrictions. [PR #4](https://github.com/janbam/herdr-web/pull/4).
+
 - Allow configured bridge URLs to include a reverse-proxy path prefix for same-origin multi-bridge
   deployments. [PR #94](https://github.com/kcosr/herdr-web/pull/94), contributed by
   [Will Hampson (@Whamp)](https://github.com/Whamp).

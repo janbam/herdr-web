@@ -56,6 +56,9 @@ use crate::notes::{
     AttachNoteRequest, CreateNoteRequest, NoteResponse, NotesError, NotesListQuery,
     NotesListResponse, NotesManager, RevisionRequest, UpdateNoteRequest,
 };
+use crate::push_notifications::{
+    PushConfig, PushNotifications, SubscriptionRequest, SubscriptionResponse, TransitionTracker,
+};
 use crate::websocket_heartbeat::{WebSocketHeartbeat, WebSocketHeartbeatAction};
 
 const DEFAULT_HOST: &str = "127.0.0.1";
@@ -117,6 +120,7 @@ struct BridgeState {
     terminal_sessions: Arc<Mutex<TerminalSessions>>,
     selected_pane_id: Arc<Mutex<Option<String>>>,
     agent_activity: Arc<AgentActivityManager>,
+    push_notifications: Option<Arc<PushNotifications>>,
     agent_pins: Arc<AgentPinsManager>,
     launcher_presets: Arc<LauncherPresetStore>,
     notes: Arc<NotesManager>,
@@ -1022,6 +1026,12 @@ async fn run_server(options: BridgeOptions) -> io::Result<()> {
             .map_err(|message| io::Error::new(ErrorKind::InvalidInput, message))?,
     );
     let notes = Arc::new(NotesManager::new()?);
+    // Keep delivery alive exactly as long as this server, including failed binds.
+    let push = PushNotifications::from_env()?;
+    let (push_notifications, _push_worker) = match push {
+        Some((service, worker)) => (Some(service), Some(worker)),
+        None => (None, None),
+    };
     let request_policy = RequestPolicy {
         bind_host: options.host.clone(),
         bind_port: options.port,
@@ -1050,6 +1060,7 @@ async fn run_server(options: BridgeOptions) -> io::Result<()> {
         terminal_sessions: Arc::new(Mutex::new(TerminalSessions::default())),
         selected_pane_id: Arc::new(Mutex::new(None)),
         agent_activity,
+        push_notifications,
         agent_pins,
         launcher_presets,
         notes,
@@ -1117,6 +1128,18 @@ async fn run_server(options: BridgeOptions) -> io::Result<()> {
             post(launcher_preset_launch_handler).options(preflight_handler),
         );
     let app = Router::new()
+        .merge(
+            Router::new()
+                .route(
+                    "/api/push/config",
+                    get(push_config_handler).options(preflight_handler),
+                )
+                .route(
+                    "/api/push/subscription",
+                    post(push_subscription_handler).options(preflight_handler),
+                )
+                .layer(DefaultBodyLimit::max(8192)),
+        )
         .merge(agent_activity_routes)
         .merge(agent_pins_routes)
         .merge(notes_routes)
@@ -3099,6 +3122,52 @@ async fn capabilities_handler(
     }))
 }
 
+/// Expose only the public enrollment key, under the existing Host/Origin policy.
+async fn push_config_handler(
+    State(state): State<BridgeState>,
+    headers: HeaderMap,
+) -> Result<Json<PushConfig>, BridgeError> {
+    ensure_allowed_request(&headers, &state.request_policy)?;
+    Ok(Json(PushNotifications::config(
+        state.push_notifications.as_deref(),
+    )))
+}
+
+/// Limit enrollment to trusted bridge callers and keep disk locking off the async executor.
+async fn push_subscription_handler(
+    State(state): State<BridgeState>,
+    headers: HeaderMap,
+    Json(request): Json<SubscriptionRequest>,
+) -> Result<Json<SubscriptionResponse>, BridgeError> {
+    ensure_allowed_request(&headers, &state.request_policy)?;
+    let service = state.push_notifications.ok_or_else(|| {
+        BridgeError::BadRequest(
+            "Set HERDR_WEB_PUSH_SUBJECT on the bridge to enable Web Push".into(),
+        )
+    })?;
+    if let SubscriptionRequest::Test { endpoint } = request {
+        service.test(endpoint).await.map_err(push_api_error)?;
+        return Ok(Json(SubscriptionResponse { preferences: None }));
+    }
+    let response = tokio::task::spawn_blocking(move || service.subscription(request))
+        .await
+        .map_err(|_| BridgeError::Protocol("Push storage task failed".into()))?
+        .map_err(push_api_error)?;
+    Ok(Json(response))
+}
+
+/// Return actionable input errors without exposing filesystem paths or provider credentials.
+fn push_api_error(error: io::Error) -> BridgeError {
+    if error.kind() == ErrorKind::InvalidInput {
+        BridgeError::BadRequest(error.to_string())
+    } else {
+        warn!("Web Push operation failed");
+        BridgeError::Protocol(
+            "Web Push operation failed; check bridge configuration and try again".into(),
+        )
+    }
+}
+
 async fn agent_activity_list_handler(
     State(state): State<BridgeState>,
     headers: HeaderMap,
@@ -4340,11 +4409,16 @@ fn run_agent_activity_subscription(
         return Ok(());
     };
     observe_agent_activity_snapshot(state, &baseline);
+    // Snapshot identities select terminals; only ordered stream events establish push statuses.
+    let mut push_transitions = TransitionTracker::new(&baseline);
 
     loop {
         if drain_resubscribe_signals(resubscribe_rx) {
             let next_panes = current_panes(&state.api)?;
             observe_agent_activity_snapshot(state, &next_panes);
+            if push_transitions.reconcile(&next_panes) {
+                return Ok(());
+            }
             if !activity_resubscribe_needed(&pane_ids, &next_panes) {
                 continue;
             }
@@ -4359,6 +4433,11 @@ fn run_agent_activity_subscription(
                         ..
                     } = &message
                     {
+                        if push_transitions.observe(pane_id, *agent_status) {
+                            if let Some(push) = &state.push_notifications {
+                                push.notify(pane_id, *agent_status);
+                            }
+                        }
                         if state
                             .agent_activity
                             .observe_status_event(pane_id, *agent_status)
