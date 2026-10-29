@@ -16,6 +16,7 @@
 
 ### Fixed
 
+- Let Firefox Android collapse its tabs and address bar during terminal swipes while preserving terminal scrolling, long-press selection, and mouse-reporting programs. [PR #10](https://github.com/janbam/herdr-web/pull/10).
 - Preserve Shift+Enter as a distinct terminal chord so Pi, Codex, and current Claude Code can insert a newline instead of submitting the prompt, including with Android soft keyboards and the mobile shortcut builder. [PR #9](https://github.com/janbam/herdr-web/pull/9).
 - Restore terminal Enter, Backspace, Delete, arrows, and navigation keys in Firefox Android when soft keyboards omit the physical key code, preserving terminal cursor modes and keyboard modifiers. [PR #8](https://github.com/janbam/herdr-web/pull/8).
 - Align terminal cell metrics to device-pixel boundaries (port of upstream ghostty-web PR #146), removing the hairline grid seams over selection and other per-cell background fills at fractional display ratios. [PR #2](https://github.com/janbam/herdr-web/pull/2).

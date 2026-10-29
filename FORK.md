@@ -48,6 +48,15 @@ Introduced in [fork PR #9](https://github.com/janbam/herdr-web/pull/9).
 - **Preserve:** exact Shift+Enter sends CSI-u `ESC[13;2u` once from physical keyboards, soft keyboards, and the on-screen shortcut builder. Ordinary Enter and chords with additional modifiers retain existing behavior. Composition guards and keydown cancellation remain in place. This is a single-chord policy, not full Kitty keyboard protocol negotiation or foreground-app detection. Programs without CSI-u support need not treat it as a newline.
 - **Removal:** remove only after equivalent distinct Shift+Enter encoding is verified for both direct terminal input and on-screen shortcuts. Do not replace it with LF, which loses chord identity and can submit shell commands.
 
+### Firefox Android browser chrome and terminal swipes
+
+Introduced in [fork PR #10](https://github.com/janbam/herdr-web/pull/10).
+
+- **Why:** Firefox keeps its tabs and address bar expanded when the page has no native scroll range or the terminal cancels ordinary browser panning.
+- **Sources:** the Firefox/coarse-pointer rules in [web/src/styles.css](web/src/styles.css), gesture arbitration and mouse-mode synchronization in [web/src/terminalRenderer.ts](web/src/terminalRenderer.ts), and [touch regressions](web/src/terminalRenderer.touch.test.ts).
+- **Preserve:** keep the app fixed to `100dvh` while the document remains scrollable beyond `100lvh`; clip body overflow without introducing another scroll container. Ordinary terminal swipes still send remote scroll commands while allowing Firefox to animate its chrome. Use screen coordinates only for shared scrolling, retain client coordinates and cancellation for selection, and disable native panning before a mouse-reporting program receives a touch. Other engines and fine-pointer layouts retain their existing behavior.
+- **Removal:** revisit only after real Firefox Android checks demonstrate equivalent toolbar collapse, terminal scroll distance, held-drag selection, and keyboard refitting without these adaptations.
+
 ### Herdr v0.9.5 compatibility baseline
 
 Introduced in [fork PR #3](https://github.com/janbam/herdr-web/pull/3), commit `e86e0b1`.
