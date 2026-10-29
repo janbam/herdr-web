@@ -193,6 +193,7 @@ export class GhosttyRenderer implements TerminalRenderer {
     this.#eventDrivenRendering = shouldUseEventDrivenTerminalRendering(cursorBlink);
   }
 
+  /** Attach Ghostty and install the terminal's rendering, gesture and input policies. */
   async mount(container: HTMLElement) {
     const { FitAddon, Terminal } = await loadGhosttyModule();
     if (this.#disposed) {
@@ -271,6 +272,7 @@ export class GhosttyRenderer implements TerminalRenderer {
     terminal.renderer?.getCanvas().style.setProperty("image-rendering", "auto");
     this.#terminal = terminal;
     this.#fitAddon = fitAddon;
+    this.#syncMouseTracking(terminal);
     this.#installAccessibleScreenPublisher();
     this.#installScrollHandlers();
     this.#installMobileInputBridge();
@@ -278,12 +280,15 @@ export class GhosttyRenderer implements TerminalRenderer {
     return this.fit();
   }
 
+  /** Parse output and keep the next touch's browser-pan policy aligned with terminal modes. */
   write(data: string | Uint8Array) {
     const terminal = this.#terminal;
     if (!terminal) {
       return;
     }
     terminal.write(data);
+    // Ghostty 0.4.0 parses synchronously; set touch-action before the next gesture begins.
+    this.#syncMouseTracking(terminal);
     this.#requestRender(terminal);
     this.#accessibleScreenPublisher?.request();
   }
@@ -419,6 +424,9 @@ export class GhosttyRenderer implements TerminalRenderer {
     this.#fitAddon = null;
     this.#terminal?.dispose();
     this.#terminal = null;
+    if (this.#container) {
+      delete this.#container.dataset.mouseTracking;
+    }
     this.#container = null;
   }
 
@@ -501,6 +509,18 @@ export class GhosttyRenderer implements TerminalRenderer {
     }
   }
 
+  /** Reserve touchscreen gestures for mouse-reporting programs before contact, not mid-swipe. */
+  #syncMouseTracking(terminal: Terminal) {
+    const container = this.#container;
+    if (!container) {
+      return;
+    }
+    const tracking = String(this.#hasMouseTracking(terminal));
+    if (container.dataset.mouseTracking !== tracking) {
+      container.dataset.mouseTracking = tracking;
+    }
+  }
+
   #installScrollHandlers() {
     const terminal = this.#requireTerminal();
 
@@ -524,6 +544,7 @@ export class GhosttyRenderer implements TerminalRenderer {
     this.#installTouchHandlers();
   }
 
+  /** Share ordinary swipes with opted-in browser chrome while retaining selection ownership. */
   #installTouchHandlers() {
     const terminal = this.#requireTerminal();
     const container = this.#container;
@@ -539,6 +560,7 @@ export class GhosttyRenderer implements TerminalRenderer {
     let touchMoved = false;
     let touchScrolled = false;
     let pendingTouchLines = 0;
+    let sharesBrowserPan = false;
     let suppressMouseUntil = 0;
     let selectionTimer: number | null = null;
     let selectingFromTouch = false;
@@ -612,8 +634,11 @@ export class GhosttyRenderer implements TerminalRenderer {
         terminal.clearSelection();
       }
     };
-    const preventTouchEvent = (event: TouchEvent) => {
-      event.preventDefault();
+    /** Stop Ghostty's competing touch path, cancelling native panning only when we own it. */
+    const stopTouchEvent = (event: TouchEvent, cancelDefault = true) => {
+      if (cancelDefault) {
+        event.preventDefault();
+      }
       event.stopPropagation();
       if (typeof event.stopImmediatePropagation === "function") {
         event.stopImmediatePropagation();
@@ -932,7 +957,7 @@ export class GhosttyRenderer implements TerminalRenderer {
       if (event.changedTouches.length > 0 && endpointDragMoved) {
         updateEndpointDrag(event.changedTouches[0], true);
       }
-      preventTouchEvent(event);
+      stopTouchEvent(event);
       suppressMouseEvents();
       const selection = completeTouchSelection(selectionState);
       const selectedText = selection
@@ -948,7 +973,7 @@ export class GhosttyRenderer implements TerminalRenderer {
       }
     };
     const completeSimpleTouchSelection = (event: TouchEvent) => {
-      preventTouchEvent(event);
+      stopTouchEvent(event);
       suppressMouseEvents();
       const selectedText =
         simpleSelectionStart && simpleSelectionEnd
@@ -1015,6 +1040,7 @@ export class GhosttyRenderer implements TerminalRenderer {
       touchMoved = false;
       touchScrolled = false;
       pendingTouchLines = 0;
+      sharesBrowserPan = false;
     };
     const onTouchStart = (event: TouchEvent) => {
       clearSelectionTimer();
@@ -1026,7 +1052,7 @@ export class GhosttyRenderer implements TerminalRenderer {
           event.target instanceof Node &&
           endpointBubble.contains(event.target)
         ) {
-          preventTouchEvent(event);
+          stopTouchEvent(event);
           beginEndpointDrag(event.touches[0]);
           return;
         }
@@ -1034,14 +1060,16 @@ export class GhosttyRenderer implements TerminalRenderer {
       }
       if (event.touches.length === 1) {
         const mouseTracking = this.#hasMouseTracking(terminal);
+        // Freeze CSS's browser-pan opt-in for this gesture; selection can still claim a held drag.
+        sharesBrowserPan = !mouseTracking && getComputedStyle(container).touchAction === "pan-y";
         if (this.#mobileLongPressBehavior !== "off" && !mouseTracking) {
-          preventTouchEvent(event);
+          stopTouchEvent(event, !sharesBrowserPan);
           suppressMouseEvents(TOUCH_SELECTION_LONG_PRESS_MS + TOUCH_COMPAT_MOUSE_SUPPRESS_MS);
         }
         const touch = event.touches[0];
         touchStartX = touch.clientX;
         touchStartY = touch.clientY;
-        lastTouchY = touch.clientY;
+        lastTouchY = sharesBrowserPan ? touch.screenY : touch.clientY;
         touchMoved = false;
         touchScrolled = false;
         selectingFromTouch = false;
@@ -1068,23 +1096,24 @@ export class GhosttyRenderer implements TerminalRenderer {
       }
       if (selectionState.phase === "placing-start" && event.touches.length === 1) {
         updateStartPlacement(event.touches[0]);
-        preventTouchEvent(event);
+        stopTouchEvent(event);
         return;
       }
       if (selectingFromTouch && event.touches.length === 1) {
         updateSimpleTouchSelection(event.touches[0]);
-        preventTouchEvent(event);
+        stopTouchEvent(event);
         return;
       }
       if (selectionState.phase === "dragging-endpoint" && event.touches.length === 1) {
         updateEndpointDrag(event.touches[0]);
-        preventTouchEvent(event);
+        stopTouchEvent(event);
         return;
       }
       if (this.#hasMouseTracking(terminal) || event.touches.length !== 1 || lastTouchY === null) {
         return;
       }
-      const currentY = event.touches[0].clientY;
+      // Browser chrome moves the client origin during a swipe; physical finger travel must not jump.
+      const currentY = sharesBrowserPan ? event.touches[0].screenY : event.touches[0].clientY;
       const deltaY = currentY - lastTouchY;
       lastTouchY = currentY;
       if (touchStartX !== null && touchStartY !== null) {
@@ -1105,11 +1134,7 @@ export class GhosttyRenderer implements TerminalRenderer {
         }
         pendingTouchLines -= lines;
         touchScrolled = true;
-        event.preventDefault();
-        event.stopPropagation();
-        if (typeof event.stopImmediatePropagation === "function") {
-          event.stopImmediatePropagation();
-        }
+        stopTouchEvent(event, !sharesBrowserPan);
       }
     };
     const onTouchEnd = (event: TouchEvent) => {
@@ -1128,7 +1153,7 @@ export class GhosttyRenderer implements TerminalRenderer {
         return;
       }
       if (selectionState.phase === "placing-start") {
-        preventTouchEvent(event);
+        stopTouchEvent(event);
         suppressMouseEvents();
         waitForEndpointDrag();
         resetTouchTracking();
@@ -1150,7 +1175,7 @@ export class GhosttyRenderer implements TerminalRenderer {
       } else {
         const linkText = touchLinkText(event);
         if (linkText?.trim()) {
-          preventTouchEvent(event);
+          stopTouchEvent(event);
           suppressMouseEvents();
           terminal.textarea?.blur();
           this.#mobileTouchSelectionHandler?.({ type: "url", url: linkText });

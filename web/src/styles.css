@@ -118,6 +118,38 @@ body,
   overscroll-behavior: none;
 }
 
+/* FORK-OWNED: Firefox needs a scrollable root even when the terminal handles the swipe. */
+@supports (-moz-appearance: none) {
+  @media (hover: none) and (pointer: coarse) {
+    html {
+      height: auto;
+      min-height: 100%;
+      overflow-y: auto;
+      overscroll-behavior-y: contain;
+      overflow-anchor: none;
+      scrollbar-width: none;
+    }
+
+    body {
+      /* Remain scrollable with the bars collapsed; clip injected content without trapping panning. */
+      height: calc(100lvh + 1px);
+      overflow: clip;
+      overscroll-behavior-y: auto;
+    }
+
+    #root {
+      /* Only browser chrome scrolls away; the app keeps following the visible viewport. */
+      position: fixed;
+      inset: 0;
+      overscroll-behavior-y: auto;
+    }
+
+    .terminal-host:not([data-mouse-tracking="true"]) {
+      touch-action: pan-y;
+    }
+  }
+}
+
 button {
   font: inherit;
   color: inherit;
