@@ -29,7 +29,7 @@ vi.mock("ghostty-web", () => ({
       active: {
         getLine: () => ({
           length: 80,
-          getCell: () => ({ getCodepoint: () => 88, getWidth: () => 1 }),
+          getCell: () => ({ getCodepoint: () => 88, getWidth: () => 1, getHyperlinkId: () => 0 }),
         }),
       },
     };
@@ -111,6 +111,20 @@ describe("terminal and browser touch arbitration", () => {
     expect(scroll.mock.calls).toEqual([[1]]);
   });
 
+  it.each(["off", "copy"] as const)("preserves tap focus after a tiny shared-pan wobble with long-press %s", (behavior) => {
+    const focus = vi.fn(() => true);
+    const scroll = vi.fn();
+    renderer.setTapFocusHandler(focus);
+    renderer.setMobileTouchSelection(behavior, vi.fn(), 1500);
+    renderer.onScroll(scroll);
+    dispatchTouch("touchstart", 100, 220);
+    dispatchTouch("touchmove", 99, 219);
+    dispatchTouch("touchend", 99, 219);
+
+    expect(focus).toHaveBeenCalledOnce();
+    expect(scroll).not.toHaveBeenCalled();
+  });
+
   it("lets a held selection claim client-space dragging without scrolling the terminal or browser", () => {
     const scroll = vi.fn();
     const selection = vi.fn();
@@ -129,6 +143,18 @@ describe("terminal and browser touch arbitration", () => {
     expect(selection).toHaveBeenCalledOnce();
     expect(selection.mock.calls[0][0]).toEqual({ type: "selection", text: expect.stringContaining("\n") });
     expect(ghostty.select).toHaveBeenLastCalledWith(2, 2, 321);
+  });
+
+  it("cancels long-press intent when toolbar movement masks physical scrolling in client space", () => {
+    const scroll = vi.fn();
+    renderer.onScroll(scroll);
+    renderer.setMobileTouchSelection("copy", vi.fn(), 1500);
+    dispatchTouch("touchstart", 100, 220);
+    dispatchTouch("touchmove", 100, 200);
+    vi.advanceTimersByTime(600);
+
+    expect(scroll.mock.calls).toEqual([[2]]);
+    expect(ghostty.select).not.toHaveBeenCalled();
   });
 
   it("publishes parsed mouse-tracking mode before the next touch and restores ordinary mode", () => {

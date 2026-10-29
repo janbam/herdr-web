@@ -557,6 +557,7 @@ export class GhosttyRenderer implements TerminalRenderer {
     let lastTouchY: number | null = null;
     let touchStartX: number | null = null;
     let touchStartY: number | null = null;
+    let touchStartScrollY: number | null = null;
     let touchMoved = false;
     let touchScrolled = false;
     let pendingTouchLines = 0;
@@ -646,6 +647,8 @@ export class GhosttyRenderer implements TerminalRenderer {
     };
     const positionFromTouch = (touch: Touch) => touchCellPosition(terminal, touch.clientX, touch.clientY);
     const clientFromTouch = (touch: Touch) => ({ clientX: touch.clientX, clientY: touch.clientY });
+    /** Keep movement intent and scroll distance in the same gesture-stable coordinate frame. */
+    const scrollYFromTouch = (touch: Touch) => sharesBrowserPan ? touch.screenY : touch.clientY;
     const loupePositionFromClient = (clientX: number, clientY: number) =>
       touchCellPosition(terminal, clientX, clientY - TOUCH_LOUPE_TARGET_OFFSET_Y_PX);
     const loupePositionFromTouch = (touch: Touch) =>
@@ -1037,6 +1040,7 @@ export class GhosttyRenderer implements TerminalRenderer {
       lastTouchY = null;
       touchStartX = null;
       touchStartY = null;
+      touchStartScrollY = null;
       touchMoved = false;
       touchScrolled = false;
       pendingTouchLines = 0;
@@ -1069,7 +1073,8 @@ export class GhosttyRenderer implements TerminalRenderer {
         const touch = event.touches[0];
         touchStartX = touch.clientX;
         touchStartY = touch.clientY;
-        lastTouchY = sharesBrowserPan ? touch.screenY : touch.clientY;
+        lastTouchY = scrollYFromTouch(touch);
+        touchStartScrollY = lastTouchY;
         touchMoved = false;
         touchScrolled = false;
         selectingFromTouch = false;
@@ -1082,10 +1087,10 @@ export class GhosttyRenderer implements TerminalRenderer {
       }
     };
     const onTouchMove = (event: TouchEvent) => {
-      if (event.touches.length === 1 && selectionTimer !== null && touchStartX !== null && touchStartY !== null) {
+      if (event.touches.length === 1 && selectionTimer !== null && touchStartX !== null && touchStartScrollY !== null) {
         const touch = event.touches[0];
         const deltaX = touch.clientX - touchStartX;
-        const deltaY = touch.clientY - touchStartY;
+        const deltaY = scrollYFromTouch(touch) - touchStartScrollY;
         const threshold =
           Math.abs(deltaY) > Math.abs(deltaX)
             ? TOUCH_SELECTION_SCROLL_INTENT_PX
@@ -1113,12 +1118,12 @@ export class GhosttyRenderer implements TerminalRenderer {
         return;
       }
       // Browser chrome moves the client origin during a swipe; physical finger travel must not jump.
-      const currentY = sharesBrowserPan ? event.touches[0].screenY : event.touches[0].clientY;
+      const currentY = scrollYFromTouch(event.touches[0]);
       const deltaY = currentY - lastTouchY;
       lastTouchY = currentY;
-      if (touchStartX !== null && touchStartY !== null) {
+      if (touchStartX !== null && touchStartScrollY !== null) {
         const deltaX = event.touches[0].clientX - touchStartX;
-        const totalDeltaY = currentY - touchStartY;
+        const totalDeltaY = currentY - touchStartScrollY;
         if (Math.hypot(deltaX, totalDeltaY) > TOUCH_SELECTION_TOLERANCE_PX) {
           touchMoved = true;
         }
